@@ -48,7 +48,7 @@ all: $(OBJS)
 	mkdir -p ../bin/
 	$(CXX) $(LDFLAGS) -o ../bin/apollo $(OBJS) $(LDLIBS)
 
-main.o: main.cpp CommandLineOptions.h ../utils/lib/libz.a ../utils/lib/libbz2.a ../utils/include/seqan/basic.h
+main.o: main.cpp CommandLineParser.h ../utils/lib/libz.a ../utils/lib/libbz2.a ../utils/include/seqan/basic.h
 	$(CXX) $(CXXLAGS) -c -o main.o main.cpp $(LDLIBS)
 
 ../utils/lib/libz.a: ../utils/zlib-1.2.11.tar.gz

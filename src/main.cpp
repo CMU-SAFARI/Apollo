@@ -3,10 +3,10 @@
  *
  * More details
  * In multiple lines
- * Copyright © 2018 Can Fırtına. All rights reserved.
+ * Copyright © 2019 Can Fırtına. All rights reserved.
  *
  * @author Can Firtina
- * @bug No bug hopefully
+ * @bug No known bug
  */
 
 #include <string>
@@ -17,7 +17,7 @@
 #include <vector>
 #include <map>
 #include <thread>
-#include "CommandLineOptions.h"
+#include "CommandLineParser.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <iostream>
@@ -33,12 +33,6 @@
 #include <mutex>
 #include <condition_variable>
 
-#if defined(_WIN16) | defined(_WIN32) | defined(_WIN64)
-#define SEPERATOR "\\"
-#else
-#define SEPERATOR "/"
-#endif
-
 #define MATCH_OFFSET(char, offset, insize) ((char+offset)*(insize+1))
 #define INSERTION_OFFSET(char, offset, innumber, insize) ((char+offset)*(insize+1) + innumber) //innumber 1 based
 #define GRAPH_SIZE(size, insize) ((size+1)*(insize+1) + 1)
@@ -47,10 +41,6 @@
 std::mutex indexMutex;
 std::mutex emissionProbMutex;
 std::mutex transitionProbMutex;
-
-//#define DEBUG_HMM_DETAILED
-//#define DEBUG_HMM_RESULT
-//#define DEBUG_SHORT_READ_COMPLETION
 
 enum Nucleotide {A, T, G, C, totalNuc};
 
@@ -96,11 +86,11 @@ public:
 /** @brief Represents a state in the profile hidden Markov model graph. Total size is usually 16 bytes
  *
  */
-struct SequencingNode{
+struct SeqNode{
 public:
     
-    SequencingNode(){}
-    SequencingNode(unsigned int index, unsigned int charIndex, unsigned int insize, char nuc, char nextNuc):
+    SeqNode(){}
+    SeqNode(unsigned int index, unsigned int charIndex, unsigned int insize, char nuc, char nextNuc):
     index(index), charIndex(charIndex), nuc(nuc), isMatch((index%(insize+1) == 0)?true:false),
     isLastInsertion((insize > 0 && index%(insize+1) == insize)?true:false), nextNuc(nextNuc){}
     
@@ -206,19 +196,6 @@ struct TransitionInfoNode{
     }
 };
 
-std::string compress(std::string& uncompressed, int& nonNCount){
-    
-    nonNCount = 0;
-    std::string compressed = "";
-    for(size_t curChar = 0; curChar < uncompressed.size(); ++curChar){
-        compressed.append(&uncompressed[curChar], 1);
-        if(uncompressed[curChar] != 'N') nonNCount++;
-        while(curChar + 1 < uncompressed.size() && uncompressed[curChar] == uncompressed[curChar+1]) ++curChar;
-    }
-    
-    return compressed;
-}
-
 /*
  * Starting from startValues, until endValues, finds the indices that has the greatest values in values array and puts
  * in maxValues array. If there cannot be more than maxValuesSize different indices, rest of maxValues left as -1
@@ -251,7 +228,7 @@ void findMaxValues(const T* values, bool* selectedIndices, const int startValues
  * Using the information provided with node and numberOfDeletions, inserts the transitions that should be made afterward
  * If you are going to change the transition structure, change it from there. These are imaginary edges in the graph.
  */
-void insertNewForwardTransitions(std::vector<TransitionInfoNode>* transitionSet, const SequencingNode& node,
+void insertNewForwardTransitions(std::vector<TransitionInfoNode>* transitionSet, const SeqNode& node,
                                  const int numberOfDeletions, const int maxInsertion){
     //next insertion
     if(!node.isLastInsertionState())
@@ -277,12 +254,12 @@ void insertNewForwardTransitions(std::vector<TransitionInfoNode>* transitionSet,
  * @longReadLength: length of the read to be corrected
  * @shortReadLength: length of the read that aligns to the longer read to correct
  */
-int fillForwardMatrix(SequencingNode* graph, HMMParameters parameters, double* calculatedTransitionProbs,
+int fillForwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculatedTransitionProbs,
                       double** forwardMatrix, const char* shortRead, int const startPosition, int maxDistanceOnLongRead,
                       const int longReadLength, int const shortReadLength){
     
     if(startPosition < 0 || startPosition >= maxDistanceOnLongRead) return -1;
-    if(GRAPH_SIZE(longReadLength, parameters.maxInsertion) < maxDistanceOnLongRead)
+    if((int)GRAPH_SIZE(longReadLength, parameters.maxInsertion) < maxDistanceOnLongRead)
         maxDistanceOnLongRead = GRAPH_SIZE(longReadLength, parameters.maxInsertion);
     
     //which transitions requested from the previous time
@@ -300,7 +277,7 @@ int fillForwardMatrix(SequencingNode* graph, HMMParameters parameters, double* c
     //1-initialization (t = 1)
     int curTime = 0; //represents the current time (1...T)
     insertNewForwardTransitions(curTrSet, graph[startPosition], parameters.maxDeletion, parameters.maxInsertion);
-    for(int curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
+    for(size_t curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
         int matchoff = MATCH_OFFSET(graph[curTrSet->at(curTransition).from].getCharIndex(), 0, parameters.maxInsertion);
         //0->insertion, 1-> match, 2,3...->deletions
         int transitionIndex = (curTrSet->at(curTransition).toState - matchoff)/(parameters.maxInsertion+1);
@@ -322,7 +299,7 @@ int fillForwardMatrix(SequencingNode* graph, HMMParameters parameters, double* c
     //2-recursion (1 < t <= T)
     while (curTime < shortReadLength-1 && !curTrSet->empty()){
         curTime++;
-        for(int curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
+        for(size_t curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
             const TransitionInfoNode& frontTr = curTrSet->at(curTransition);
             if(allowedParentStates[frontTr.from - startPosition] && frontTr.toState < maxDistanceOnLongRead) {
                 int matchoff = MATCH_OFFSET(graph[frontTr.from].getCharIndex(), 0, parameters.maxInsertion);
@@ -371,7 +348,7 @@ int fillForwardMatrix(SequencingNode* graph, HMMParameters parameters, double* c
  * this node.
  * If you are going to change the transition structure, change it from there. These are imaginary edges in the graph.
  */
-void insertNewBackwardTransitions(std::vector<TransitionInfoNode>* transitionSet, const SequencingNode& node,
+void insertNewBackwardTransitions(std::vector<TransitionInfoNode>* transitionSet, const SeqNode& node,
                                   const int numberOfDeletions, const int maxInsertion){
     
     if(node.getCharIndex() == 0) return;
@@ -405,12 +382,12 @@ void insertNewBackwardTransitions(std::vector<TransitionInfoNode>* transitionSet
  * @longReadLength: length of the read to be corrected
  * @shortReadLength: length of the read that aligns to the longer read to correct
  */
-bool fillBackwardMatrix(SequencingNode* graph, HMMParameters parameters, double* calculatedTransitionProbs,
+bool fillBackwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculatedTransitionProbs,
                         double** backwardMatrix, const char* shortRead, int startPosition, int maxDistanceOnLongRead,
                         const int longReadLength, const int shortReadLength){
     
     if(maxDistanceOnLongRead < 0 || maxDistanceOnLongRead >= startPosition) return false;
-    if(GRAPH_SIZE(longReadLength, parameters.maxInsertion) < startPosition)
+    if((int) GRAPH_SIZE(longReadLength, parameters.maxInsertion) < startPosition)
         startPosition = GRAPH_SIZE(longReadLength, parameters.maxInsertion);
     
     //which transitions requested from the previous time
@@ -428,7 +405,7 @@ bool fillBackwardMatrix(SequencingNode* graph, HMMParameters parameters, double*
     //1-initialization
     int curTime = shortReadLength-1; //@curTime value is 0-based. So 0th index is the first character [T....1]
     insertNewBackwardTransitions(curTrSet, graph[startPosition], parameters.maxDeletion, parameters.maxInsertion);
-    for(int curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
+    for(size_t curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
         if(curTrSet->at(curTransition).toState > maxDistanceOnLongRead){
             int matchoff = MATCH_OFFSET(graph[curTrSet->at(curTransition).toState].getCharIndex(), 0,
                                         parameters.maxInsertion);
@@ -452,7 +429,7 @@ bool fillBackwardMatrix(SequencingNode* graph, HMMParameters parameters, double*
     //2-recursion
     while (curTime > 0 && !curTrSet->empty()){
         curTime--;
-        for(int curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
+        for(size_t curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
             const TransitionInfoNode& frontTr = curTrSet->at(curTransition);
             if(allowedParentStates[frontTr.from - maxDistanceOnLongRead] && frontTr.toState > maxDistanceOnLongRead) {
                 int matchoff = MATCH_OFFSET(graph[frontTr.toState].getCharIndex(), 0, parameters.maxInsertion);
@@ -489,7 +466,7 @@ bool fillBackwardMatrix(SequencingNode* graph, HMMParameters parameters, double*
 }
 
 //offset is an index for state, not a basepair index
-void calculateViterbiPool(SequencingNode* graph, HMMParameters parameters, double** transitionProbs,
+void calculateViterbiPool(SeqNode* graph, HMMParameters parameters, double** transitionProbs,
                           std::pair<double, char>* emissionProbs, unsigned int seqLength, unsigned int numberOfStates,
                           unsigned int& seqIndex, seqan::String<seqan::Dna5String>& sequence){
 
@@ -533,7 +510,7 @@ void calculateViterbiPool(SequencingNode* graph, HMMParameters parameters, doubl
             int next = curStateTransitions.begin()->toState;
             int transitionIndex = (next - startState)/(parameters.maxInsertion+1); //0->insertion, 1-> match, 2,3...->deletions
             
-            if(next <= endState && transitionProbs[startState][transitionIndex] > 0.001){
+            if(next <= (int) endState && transitionProbs[startState][transitionIndex] > 0.001){
                 (*prevViterbi)[next] = log10(transitionProbs[startState][transitionIndex]) + log10(emissionProbs[next].first);
                 
                 curTrSet->insert(next);
@@ -569,7 +546,7 @@ void calculateViterbiPool(SequencingNode* graph, HMMParameters parameters, doubl
                         //0->insertion, 1-> match, 2,3...->deletions
                         int transitionIndex = (toState - matchoff)/(parameters.maxInsertion+1);
                         
-                        if(toState <= endState && transitionProbs[fromState][transitionIndex] > 0.001){
+                        if(toState <= (int) endState && transitionProbs[fromState][transitionIndex] > 0.001){
                             
                             double newViterbi = (*prevViterbi)[fromState] +
                             log10(transitionProbs[fromState][transitionIndex]) + log10(emissionProbs[toState].first);
@@ -616,7 +593,7 @@ void calculateViterbiPool(SequencingNode* graph, HMMParameters parameters, doubl
             }
             
             //stop condition: we've reached final state and max valued final state is "way" left behind the current time
-            if(maxFinalStateTime > 0 && curTime > maxFinalStateTime + 20) finished = true;
+            if(maxFinalStateTime > 0 && (int) curTime > maxFinalStateTime + 20) finished = true;
             else curTime++;
             
             //swaps
@@ -647,7 +624,7 @@ void calculateViterbiPool(SequencingNode* graph, HMMParameters parameters, doubl
     }
 }
 
-void backtraceWithViterbi(SequencingNode* graph, HMMParameters parameters, double** transitionProbs,
+void backtraceWithViterbi(SeqNode* graph, HMMParameters parameters, double** transitionProbs,
                          std::pair<double, char>* emissionProbs, unsigned int numberOfStates, unsigned int thread,
                          unsigned int longReadLength, seqan::String<seqan::Dna5String>& sequence){
     
@@ -666,7 +643,7 @@ void backtraceWithViterbi(SequencingNode* graph, HMMParameters parameters, doubl
 }
 
 void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedReads, unsigned int assemblySize,
-                     SequencingNode* sequencingGraph, double** transitionProbs, double** emissionProbs,
+                     SeqNode* sequencingGraph, double** transitionProbs, double** emissionProbs,
                      int* stateProcessedCount, int** transitionProcessedCount, unsigned int& readIndex){
     
     unsigned int curRead = 0; //0-based. refers to the current read id
@@ -678,7 +655,7 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
     std::vector<TransitionInfoNode> curStateTransitions;
     std::vector<TransitionInfoNode> stateTransitions; //all possible transitions from a state to another
     insertNewForwardTransitions(&stateTransitions, sequencingGraph[0], parameters.maxDeletion, parameters.maxInsertion);
-    unsigned int numOfTransitions = stateTransitions.size();
+    unsigned int numOfTransitions = (unsigned int) stateTransitions.size();
     //@dynamic init array of pre calculated initial transition values for any state in hmm
     double* calculatedTransitionProbs = new double[numOfTransitions];
     for(unsigned int curTr = 0; curTr < numOfTransitions; ++curTr)
@@ -692,7 +669,7 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
     while(curRead < alignedReads.size()){
         
         //to which character should correction extend at maximum
-        unsigned int readLength = seqan::length(alignedReads[curRead].read);
+        unsigned int readLength = (unsigned int) seqan::length(alignedReads[curRead].read);
         unsigned int maxTransition = readLength + readLength/20 + 1;
         if(readLength < 500) maxTransition = readLength + readLength/3 + 1;
         
@@ -749,7 +726,7 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                             for(unsigned int t = 0; t < readLength; ++t){
                                 //transition probabilities
                                 if(t < readLength-1){
-                                    for(int curTr = 0; curTr < curStateTransitions.size(); ++curTr){
+                                    for(size_t curTr = 0; curTr < curStateTransitions.size(); ++curTr){
                                         if(curStateTransitions.at(curTr).toState - offset < fbMatrixSize){
                                             j = curStateTransitions[curTr].toState;
                                             //0->insertion, 1-> match, 2,3...->deletions
@@ -758,8 +735,7 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                                             forwardMatrix[t][curState-offset]*
                                             calculatedTransitionProbs[transitionIndex]*
                                             sequencingGraph[j].getEmissionProb(alignedReads[curRead].read[t+1],
-                                                                               parameters)*
-                                            backwardMatrix[t+1][j-offset];
+                                                                               parameters)*backwardMatrix[t+1][j-offset];
                                             
                                         }
                                     }
@@ -846,10 +822,12 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
 }
 
 void fillBuffer(seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex, seqan::BamAlignmentRecord& record,
-                std::vector<Read>& reads, int& rId, unsigned int mapQ, unsigned int size){
+                std::vector<Read>& reads, const uint64_t& contigId, unsigned int mapQ, unsigned int size){
     
     reads.clear();
-    while(rId == record.rID && reads.size() < size){
+    
+    while((int) contigId == record.rID && reads.size() < size){
+        
         if(!hasFlagUnmapped(record) && record.mapQ >= mapQ){
             seqan::Dna5String alignedString;
             int qId;
@@ -862,7 +840,7 @@ void fillBuffer(seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex, 
         }
         
         if(!atEnd(alignmentFileIn)) readRecord(record, alignmentFileIn);
-        else rId = -1;
+        else{record.rID = -1; break;}
     }
 }
 
@@ -870,55 +848,53 @@ void fillBuffer(seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex, 
  *
  *  @param parameters Parameters needed for HMM graphs. User provides most of the parameters for it.
  *  @param contig Contig sequence to polish
- *  @param alignedReads List of reads that align to @contig
+ *  @param alignmentSetsIn List of reads that align to @contig
  *  @param thread Number of threads that can be used
  *  @return correctedContig Polished version of @contig
  */
-void polishContig(HMMParameters parameters, seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex,
-                  seqan::BamAlignmentRecord& record, int& rId, const seqan::Dna5String& contig,
-                  seqan::Dna5String& correctedContig, unsigned int mapQ, unsigned int bufSize,
-                  unsigned int thread){
-    
+bool polishContig(HMMParameters parameters, std::vector<seqan::BamFileIn>& alignmentSetsIn,
+                  std::vector<seqan::BamIndex<seqan::Bai> >& baiIndices, std::vector<bool>& hasAlignment,
+                  std::vector<seqan::FaiIndex>& readFAIs, const seqan::Dna5String& contig,
+                  const uint64_t& contigId, seqan::Dna5String& correctedContig, unsigned int mapQ,
+                  unsigned int bufSize, unsigned int thread){
+
     std::vector<Read> alignedReads; //aligned reads
-    unsigned int contigLength = length(contig);
-    
-    //There are x2 states for each character in the long read. Additionally, there are start state, insertion state
-    //before the first match state, and end state.
+    unsigned int contigLength = (unsigned int)length(contig);
+
     //@dynamic init. array
     unsigned int hmmGraphSize = GRAPH_SIZE(contigLength, parameters.maxInsertion);
-    SequencingNode* sequencingGraph = new SequencingNode[hmmGraphSize];
-    
-    //constructing hidden states according to the long read to be corrected
-    //start state and its insertion states
-    sequencingGraph[0] = SequencingNode(0, 0, parameters.maxInsertion, '\0', contig[0]);
-    for(int curIn = 1; curIn <= parameters.maxInsertion; ++curIn)
-        sequencingGraph[curIn] = SequencingNode(curIn, 0, parameters.maxInsertion, '\0', contig[0]);
-    
+    SeqNode* sequencingGraph = new SeqNode[hmmGraphSize];
+
+    //constructing the pHMM graph
+    sequencingGraph[0] = SeqNode(0, 0, parameters.maxInsertion, '\0', contig[0]);
+    for(int curIn = 1; curIn <= (int)parameters.maxInsertion; ++curIn)
+        sequencingGraph[curIn] = SeqNode(curIn, 0, parameters.maxInsertion, '\0', contig[0]);
+
     unsigned int matchOffset;
     //states in between the start and end states
     for(unsigned int curCharacter = 1; curCharacter < contigLength; ++curCharacter){
         matchOffset = MATCH_OFFSET(curCharacter, 0, parameters.maxInsertion);
-        sequencingGraph[matchOffset] = SequencingNode(matchOffset, curCharacter, parameters.maxInsertion,
+        sequencingGraph[matchOffset] = SeqNode(matchOffset, curCharacter, parameters.maxInsertion,
                                                       contig[curCharacter-1], contig[curCharacter]);
         for(unsigned int curIn = 1; curIn <= parameters.maxInsertion; ++curIn)
-            sequencingGraph[matchOffset+curIn] = SequencingNode(matchOffset+curIn, curCharacter,parameters.maxInsertion,
+            sequencingGraph[matchOffset+curIn] = SeqNode(matchOffset+curIn, curCharacter,parameters.maxInsertion,
                                                                 contig[curCharacter-1], contig[curCharacter]);
     }
     //last character before the end state
     matchOffset = MATCH_OFFSET(contigLength, 0, parameters.maxInsertion);
-    sequencingGraph[matchOffset] = SequencingNode(matchOffset, contigLength, parameters.maxInsertion,
+    sequencingGraph[matchOffset] = SeqNode(matchOffset, contigLength, parameters.maxInsertion,
                                                   contig[contigLength-1], '\0');
     for(unsigned int curIn = 1; curIn <= parameters.maxInsertion; ++curIn)
-        sequencingGraph[matchOffset+curIn] = SequencingNode(matchOffset+curIn, contigLength, parameters.maxInsertion,
+        sequencingGraph[matchOffset+curIn] = SeqNode(matchOffset+curIn, contigLength, parameters.maxInsertion,
                                                               contig[contigLength-1], '\0');
-    
+
     //end state
     matchOffset = END_STATE(contigLength, parameters.maxInsertion);
-    sequencingGraph[matchOffset] = SequencingNode(matchOffset, contigLength+1, parameters.maxInsertion, '\0', '\0');
+    sequencingGraph[matchOffset] = SeqNode(matchOffset, contigLength+1, parameters.maxInsertion, '\0', '\0');
     std::vector<TransitionInfoNode> stateTransitions; //all possible transitions from a state to another
     insertNewForwardTransitions(&stateTransitions, sequencingGraph[0], parameters.maxDeletion, parameters.maxInsertion);
-    unsigned int numOfTransitions = stateTransitions.size();
-    
+    unsigned int numOfTransitions = (unsigned int) stateTransitions.size();
+
     //pre calculated initial transition values for any state in hmm
     //@dynamic init. array
     double* calculatedTransitionProbs = new double[numOfTransitions];
@@ -946,38 +922,50 @@ void polishContig(HMMParameters parameters, seqan::BamFileIn& alignmentFileIn, s
         std::fill_n(emissionProbs[curState], totalNuc, 0.0);
     }
     
-    bool hasAlignment = false;
-    while(rId == record.rID){
-        
-        fillBuffer(alignmentFileIn, readsIndex, record, alignedReads, rId, mapQ, bufSize);
-        unsigned int readIndex = 0;
-        std::vector<std::thread> threads;
-        
-        if(!hasAlignment && alignedReads.size())
-        for(unsigned int i = 0; i < thread && i < alignedReads.size(); ++i){
-            threads.push_back(std::thread(calculateFBPool, parameters, std::ref(alignedReads), length(contig),
-                                          sequencingGraph, transitionProbs, emissionProbs, stateProcessedCount,
-                                          transitionProcessedCount, std::ref(readIndex)));
+    for(unsigned int curSet = 0; curSet < alignmentSetsIn.size(); ++curSet){
+        bool shouldPolish = hasAlignment[curSet];
+        seqan::BamAlignmentRecord record;
+        if(shouldPolish){
+            if (!jumpToRegion(alignmentSetsIn[curSet], shouldPolish, (int)contigId, 0, (int)length(contig), baiIndices[curSet])){
+                std::cerr << "ERROR: Could not jump to " << 0 << ":" << length(contig) << "\n";
+                shouldPolish = false;
+            }
+            if(!atEnd(alignmentSetsIn[curSet])) readRecord(record, alignmentSetsIn[curSet]);
         }
+        
+        while(shouldPolish){
+            fillBuffer(alignmentSetsIn[curSet], readFAIs[curSet], record, alignedReads, contigId, mapQ, bufSize);
+            unsigned int readIndex = 0;
+            std::vector<std::thread> threads;
+            
+            //alignedReads.size will be 0 if there is no more alignment record left to read in the current file
+            if(alignedReads.size()){
+                for(unsigned int i = 0; i < thread && i < alignedReads.size(); ++i){
+                    threads.push_back(std::thread(calculateFBPool, parameters, std::ref(alignedReads), length(contig),
+                                                  sequencingGraph, transitionProbs, emissionProbs, stateProcessedCount,
+                                                  transitionProcessedCount, std::ref(readIndex)));
+                }
+            }else shouldPolish = false;
 
-        //buffer is cleared here. every thread needs to wait before the buffer gets reloaded again
-        for(unsigned int i = 0; i < thread && i < alignedReads.size(); ++i) threads[i].join();
+            //buffer is cleared here. every thread needs to wait before the buffer gets reloaded again
+            for(unsigned int i = 0; i < threads.size(); ++i) threads[i].join();
+        }
     }
-    
+
     for(unsigned int curState = 0; curState < hmmGraphSize; ++curState){
         if(sequencingGraph[curState].isLastInsertionState())
             //for the last insertion state, the insertion probs change so that it wont have insertion transition
             calculatedTransitionProbs[1] = parameters.matchTransition + parameters.insertionTransition;
-        
+
         if(stateProcessedCount[curState] > 0){ //if this state ever processed then its probs may need to be updated
             for(unsigned int curTransition = (sequencingGraph[curState].isLastInsertionState())?1:0;
                 curTransition < numOfTransitions; ++curTransition){
-                
+
                 transitionProbs[curState][curTransition] = (transitionProcessedCount[curState][curTransition] > 0)?
                 transitionProbs[curState][curTransition]/transitionProcessedCount[curState][curTransition]:
                 calculatedTransitionProbs[curTransition];
             }
-            
+
             emissionProbs[curState][A] /= stateProcessedCount[curState];
             emissionProbs[curState][T] /= stateProcessedCount[curState];
             emissionProbs[curState][G] /= stateProcessedCount[curState];
@@ -986,19 +974,19 @@ void polishContig(HMMParameters parameters, seqan::BamFileIn& alignmentFileIn, s
             for(unsigned int curTr = (sequencingGraph[curState].isLastInsertionState())?1:0; curTr < numOfTransitions;
                 ++curTr)
                 transitionProbs[curState][curTr] = calculatedTransitionProbs[curTr];
-            
+
             emissionProbs[curState][A] = sequencingGraph[curState].getEmissionProb('A', parameters);
             emissionProbs[curState][T] = sequencingGraph[curState].getEmissionProb('T', parameters);
             emissionProbs[curState][G] = sequencingGraph[curState].getEmissionProb('G', parameters);
             emissionProbs[curState][C] = sequencingGraph[curState].getEmissionProb('C', parameters);
         }
-        
+
         if(sequencingGraph[curState].isLastInsertionState())
             calculatedTransitionProbs[1] = parameters.matchTransition;
     }
-    
+
     delete[] stateProcessedCount;
-    
+
     //@dynamic init
     std::pair<double, char>* maxEmissionProbs = new std::pair<double, char>[hmmGraphSize];
     for(unsigned int curState = 0; curState < hmmGraphSize; ++curState){
@@ -1015,77 +1003,96 @@ void polishContig(HMMParameters parameters, seqan::BamFileIn& alignmentFileIn, s
             maxEmissionProbs[curState] = std::make_pair(emissionProbs[curState][C], 'C');
         }
     }
-    
+
     seqan::String<seqan::Dna5String> sequence;
     backtraceWithViterbi(sequencingGraph, parameters, transitionProbs, maxEmissionProbs, hmmGraphSize, thread,
                          contigLength, sequence);
-    
+
     for(unsigned int i = 0; i < hmmGraphSize; ++i){
         delete[] transitionProbs[i]; delete[] emissionProbs[i]; delete[] transitionProcessedCount[i];
     }
     delete[] transitionProbs; delete[] emissionProbs; delete[] transitionProcessedCount; delete[] sequencingGraph;
     delete[] maxEmissionProbs; delete[] calculatedTransitionProbs;
-    
+
     for(unsigned i = 0; i < length(sequence); ++i)
         append(correctedContig, sequence[i]);
+
+    return true;
 }
 
 /** @brief Polishes each contig in @assemblyFile reading the alignments from @alignmentFile
  *
  *  @param parameters Parameters needed for HMM graphs. User provides most of the parameters for it.
  *  @param assemblyFile Fasta/Fastq file that includes sequencing reads for each contig in assembly
- *  @param readsFile Fasta/Fastq file that includes reads that are used to align the reads in @assemblyFile
- *  @param alignmentFile SAM/BAM file that includes alignments of the reads in @readsFile to reads in @assemblyFile
+ *  @param readSets Fasta/Fastq file that includes reads that are used to align the reads in @assemblyFile
+ *  @param alignmentSets SAM/BAM file that includes alignments of the reads in @readsFile to reads in @assemblyFile
  *  @param outputFile Output file to write the both corrected/uncorrected reads (contigs).
  *  @param mapQ Threshold for mapping quality of an alignment.
  *  @param thread Number of threads that can be used
  *  @param shouldQuite If true, there is no standard output
  *  @return True, if there was no problem at any step. Otherwise, false with an appropriate output of the error.
  */
-bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, seqan::String<char> readsFile,
-            seqan::String<char> alignmentFile, seqan::String<char> outputFile, unsigned int mapQ, unsigned int thread,
-            bool shouldQuite){
-    
-    //Open SAM/BAM file and read its first alignment record
-    seqan::BamFileIn alignmentFileIn;
-    seqan::BamAlignmentRecord record;
-    int32_t alignmentId = -1;
-    
-    if (!open(alignmentFileIn, toCString(alignmentFile))){
-        std::cerr << "ERROR: Could not open " << alignmentFile << std::endl;
-        return false;
-    }
-    try{
-        seqan::BamHeader header;
-        readHeader(header, alignmentFileIn);
-        if(!atEnd(alignmentFileIn)){
-            readRecord(record, alignmentFileIn);
-            alignmentId = record.rID;
-        }
-    }catch(seqan::Exception const & e){
-        std::cerr << "ERROR: " << e.what() << std::endl;
-        return false;
-    }
-    
+bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vector<seqan::String<char> > readSets,
+            std::vector<seqan::String<char> > alignmentSets, seqan::String<char> outputFile, unsigned int mapQ,
+            unsigned int thread, bool shouldQuite){
+
+    //hybridMode is true of there are multiple alignment files provided
+//    bool hybridMode = (alignmentSets.size()>1)?true:false;
+
+    //Reading Assembly and generating bitvectors showing whether a contig is polished
     //Index file for assembly fasta
     seqan::FaiIndex assemblyFAI;
-    if(!build(assemblyFAI, toCString(assemblyFile))){
+    if(!build(assemblyFAI, toCString(assemblyFile))){ //read the assembly file and build the index file
         std::cerr << "ERROR: Could not build FAI index for file " << assemblyFile << ". Make sure the fasta file "
         << "is structured correctly for creating its index (i.e. all lines have to have same number of basepairs)."
         << std::endl;
         return false;
     }
-    
-    //index file aligned reads
-    seqan::FaiIndex readsFAI;
-    if(!build(readsFAI, toCString(readsFile))){
-        std::cerr << "ERROR: Could not build FAI index for file " << readsFile << ". Make sure the fasta file "
-        << "is structured correctly for creating its index (i.e. all lines have to have same number of basepairs)."
-        << std::endl;
-        return false;
+    //how many contigs in the assembly
+    uint64_t nContigs = seqan::numSeqs(assemblyFAI);
+
+    //reading/creating the indices for each of the alignment and the read set pairs
+    std::vector<seqan::BamFileIn> alignmentSetsIn(alignmentSets.size());
+    std::vector<seqan::BamIndex<seqan::Bai> > baiIndices(alignmentSets.size()); //indexed alignment files
+    std::vector<seqan::FaiIndex> readFAIs(alignmentSets.size()); //indexed read sets
+    for(unsigned int i = 0; i < alignmentSets.size(); ++i){
+        
+        if (!open(alignmentSetsIn[i], toCString(alignmentSets[i]))){
+            std::cerr << "ERROR: Could not open " << alignmentSets[i] << std::endl;
+            return false;
+        }
+        try{
+            seqan::BamHeader header;
+            readHeader(header, alignmentSetsIn[i]);
+        }catch(seqan::Exception const & e){
+            std::cerr << "ERROR: " << e.what() << std::endl;
+            return false;
+        }
+        
+        //fetching indexed alignment files
+        seqan::CharString baiFileName = alignmentSets[i];
+        seqan::CharString baiExt = ".bai";
+        seqan::append(baiFileName, baiExt);
+        if (!open(baiIndices[i], toCString(baiFileName))){
+            std::cerr << "ERROR: Could not read BAI index file " << baiFileName << ". Please index your alignment "
+            << "file with \"samtools index\" command\n"; return 1;
+        }
+        
+        //fetching/building&saving FAI files for each of the read sets
+        if(!seqan::open(readFAIs[i], toCString(readSets[i]))){
+            if(!build(readFAIs[i], toCString(readSets[i]))){
+                std::cerr << "ERROR: Could not build FAI index for file " << readSets[i] << ". Make sure the fasta "
+                << "file is structured correctly for creating its index (i.e., all lines have the same number of "
+                << "basepairs)." << std::endl; return false;
+            }
+            if (!save(readFAIs[i])){
+                std::cerr << "ERROR: Could not write FAI index for file " << readSets[i] << " to the disk. Apollo "
+                <<"will still continue running.\n";
+            }
+        }
     }
-    
-    //output file for the contigs
+
+    //output file for the polished/unpolished contigs (all of them in a single data set with the order preserved)
     std::fstream correctedReadStream;
     try{
         correctedReadStream.open(toCString(outputFile), std::fstream::out | std::fstream::trunc);
@@ -1093,60 +1100,54 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, seqan::S
         std::cerr << "Could not open " << outputFile << std::endl;
         return false;
     }
-    
-    unsigned int bufSize = (3*thread > 2000)?3*thread:2000;
-    
-    //how many contigs in the assembly
-    uint64_t nContigs = seqan::numSeqs(assemblyFAI);
-    std::vector<bool> isContigProcessed(nContigs);
-    std::fill_n(isContigProcessed.begin(), isContigProcessed.size(), false);
+
+    unsigned int bufSize = (3*thread > 2000)?3*thread:2000;//how many alignment records to fetch from disk to mem
     if(!shouldQuite) std::cout << "Polishing has begun..." << std::endl;
     seqan::SeqFileOut correctedReadsOut(correctedReadStream, seqan::Fasta());
-    
-    //for each contig, read the alignment records, save them, and correct the contig if there is at least one
+    std::vector<bool> hasAlignment(alignmentSetsIn.size());
+
+    //for each contig, read all the aligned reads, save them, and correct the contig if there is at least one
     //alignment record
-    while(alignmentId >= 0 && alignmentId < nContigs){
-        //get the contig name of the current alignment record
-        seqan::String<char> curSeqName = seqan::getContigName(record, alignmentFileIn);
-        int assemblyId = -1;
-        //look if the same name exists in the assembly fasta file
-        if(seqan::getIdByName(assemblyId, assemblyFAI, curSeqName)){
-            //read the sequence
-            seqan::Dna5String curSeq; //assembly contig
-            seqan::readSequence(curSeq, assemblyFAI, alignmentId);
-            seqan::Dna5String corr;
-            
-            //start polishing
-            polishContig(parameters,alignmentFileIn,readsFAI,record,alignmentId,curSeq,corr,mapQ,bufSize,thread);
-            if(length(corr) > 0) curSeq = corr;
-            writeRecord(correctedReadsOut, curSeqName, curSeq);
-            isContigProcessed[assemblyId] = true;
-            if(alignmentId >= 0) alignmentId = record.rID;
-        }else if(!atEnd(alignmentFileIn)){ //if the same file does not exists switch to the next alignment record
-            readRecord(record, alignmentFileIn);
-            alignmentId = record.rID;
-        }else alignmentId = -1;
-    }
-    
-    for(unsigned int i = 0; i < isContigProcessed.size(); ++i){
-        if(!isContigProcessed[i]){
-            seqan::Dna5String curSeq; //assembly contig
-            seqan::String<char> curSeqName; //contig name
-            readSequence(curSeq, assemblyFAI, i);
-            curSeqName = sequenceName(assemblyFAI, i);
-            writeRecord(correctedReadsOut, curSeqName, curSeq);
+    uint64_t contigId = 0;
+    while(contigId < nContigs){
+        std::fill_n(hasAlignment.begin(), hasAlignment.size(), false);
+        
+        //name of the current contig to polish
+        seqan::CharString curContigName = (seqan::CharString) seqan::sequenceName(assemblyFAI, (unsigned int) contigId);
+        seqan::Dna5String curSeq; //assembly contig
+        seqan::readSequence(curSeq, assemblyFAI, (unsigned int) contigId);
+        seqan::Dna5String corr;
+        
+        bool shouldPolish = false;
+        bool check = false;
+        for(unsigned int i = 0; i < alignmentSetsIn.size(); ++i){
+            if (!jumpToRegion(alignmentSetsIn[i], check, (int) contigId, 0, (int) length(curSeq), baiIndices[i])){
+                std::cerr << "ERROR: Could not jump to " << 0 << ":" << length(curSeq) << "\n";
+                return false;
+            }
+            hasAlignment[i] = check;
+            if(hasAlignment[i]) shouldPolish = true;
         }
+        
+        //start polishing
+        if(shouldPolish){
+            polishContig(parameters, alignmentSetsIn, baiIndices, hasAlignment, readFAIs, curSeq, contigId, corr,
+                         mapQ, bufSize, thread);
+            if(length(corr) > 0) curSeq = corr;
+        }
+        writeRecord(correctedReadsOut, curContigName, curSeq);
+        ++contigId;
     }
-    
+
     correctedReadStream.close();
     if(!shouldQuite) std::cout << std::endl << "Results have been written under " << outputFile << std::endl;
-    
+
     return true;
 }
 
-int main(int argc, const char** argv) {
+int main(int argc, const char** argv){
     
-    CommandLineOptions options;
+    CommandLineParser options;
     seqan::ArgumentParser::ParseResult parseRes = parseCommandOptions(options, argc, argv);
     
     if(parseRes != seqan::ArgumentParser::PARSE_OK){
@@ -1158,9 +1159,13 @@ int main(int argc, const char** argv) {
                              options.deletionTransitionFactor, options.matchEmission);
     
     if(!options.shouldQuite){
-        std::cout << "Assembly: " << toCString(options.assembly) << std::endl << "Sequencing reads: " <<
-        toCString(options.reads.front()) << std::endl << "Alignment file: " << toCString(options.alignment) <<
-        std::endl << "Output file: " << options.output << std::endl << "Min mapping quality: " << options.mapQ <<
+        std::cout << "Assembly: " << toCString(options.assembly) << std::endl <<
+        "Pair of a set of reads and their alignments:" << std::endl;
+        
+        for(unsigned int i = 0; i < options.readSets.size(); ++i)
+            std::cout << toCString(options.readSets.at(i)) << ", " << toCString(options.alignmentSets.at(i)) << std::endl;
+        
+        std::cout << "Output file: " << options.output << std::endl << "Min mapping quality: " << options.mapQ <<
         std::endl << "Filter size: " << parameters.filterSize << std::endl << "Viterbi filter size: " <<
         parameters.viterbiFilterSize << std::endl << "Viterbi batch size: " << parameters.batchSize << std::endl <<
         "Maximum insertion: " << parameters.maxInsertion << std::endl << "Maximum deletion: " << parameters.maxDeletion
@@ -1173,7 +1178,7 @@ int main(int argc, const char** argv) {
         << std::endl << "Max thread: " << options.maxThread << std::endl;
     }
     
-    polish(parameters, options.assembly, options.reads.front(), options.alignment, options.output, options.mapQ,
+    polish(parameters, options.assembly, options.readSets, options.alignmentSets, options.output, options.mapQ,
            options.maxThread, options.shouldQuite);
     
     return 0;
