@@ -22,7 +22,7 @@ apollo -h
 ```
 
 ## Assembly polishing
-###Polishing using a single set of reads (i.e., non-hybrid)
+Polishing using a single set of reads (i.e., non-hybrid):
 
 Assume that you have 1) an assembly `assembly.fasta`, 2) a set of reads `reads.fasta`, 3) the alignment file `alignment.bam` that contains the alignment of the reads to the assembly, 4) and you would like to store polished assembly as `polished.fasta`. The command below uses `30` threads while polishing the assembly:
 
@@ -31,7 +31,7 @@ Assume that you have 1) an assembly `assembly.fasta`, 2) a set of reads `reads.f
 ```
 Resulting fasta file `polished.fasta` will be the final output of Apollo.
 
-###Polishing using a hybrid set of reads
+Polishing using a hybrid set of reads:
 
 Assume that you have 1) an assembly `assembly.fasta`, 2) a hybrid set of reads `reads1.fasta` and `reads2.fasta`, 3) the alignment of these reads to the assembly stored in `alignment1.bam` and `alignment2.bam`, respectively, 4) and you would like to store polished assembly as `polished.fasta`. The command below uses `30` threads while polishing the assembly:
 
