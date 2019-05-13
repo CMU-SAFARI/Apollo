@@ -48,9 +48,9 @@ enum Nucleotide {A, T, G, C, totalNuc};
  *
  */
 struct HMMParameters{
-    
+
 public:
-    
+
     HMMParameters(unsigned int filterSize, unsigned int viterbiFilterSize, unsigned int maxDeletion, unsigned int
                   maxInsertion, unsigned int batchSize, double matchTransition, double insertionTransition,
                   double deletionTransitionFactor, double matchEmission):
@@ -61,14 +61,14 @@ public:
         mismatchEmission = (double)(1 - matchEmission)/3.00;
         insertionEmission = (double)1/3.00; //total nucleotide = 4; Emission prob for each except one
     }
-    
+
     HMMParameters(const HMMParameters& cpy):
     filterSize(cpy.filterSize), viterbiFilterSize(cpy.viterbiFilterSize), maxDeletion(cpy.maxDeletion),
     maxInsertion(cpy.maxInsertion), batchSize(cpy.batchSize), matchTransition(cpy.matchTransition),
     insertionTransition(cpy.insertionTransition), deletionTransition(cpy.deletionTransition),
     deletionTransitionFactor(cpy.deletionTransitionFactor), matchEmission(cpy.matchEmission),
     mismatchEmission(cpy.mismatchEmission), insertionEmission(cpy.insertionEmission){}
-    
+
     unsigned filterSize;
     unsigned viterbiFilterSize;
     unsigned maxDeletion;
@@ -88,12 +88,12 @@ public:
  */
 struct SeqNode{
 public:
-    
+
     SeqNode(){}
     SeqNode(unsigned int index, unsigned int charIndex, unsigned int insize, char nuc, char nextNuc):
     index(index), charIndex(charIndex), nuc(nuc), isMatch((index%(insize+1) == 0)?true:false),
     isLastInsertion((insize > 0 && index%(insize+1) == insize)?true:false), nextNuc(nextNuc){}
-    
+
     /** @brief Emission probability calculation
      *
      *  @param character Basepair to calculate the emission probability
@@ -101,7 +101,7 @@ public:
      *  @return Emission probability of the given character (basepair) [0-1]
      */
     double getEmissionProb(const char& character, const HMMParameters& parameters){
-        
+
         if(isMatch){//match state: either match or mismatch emission probability
             if(character == nuc || character == 'N')
                 return parameters.matchEmission;
@@ -110,10 +110,10 @@ public:
             //insertion state: no emission for 'N' or for the next character in long read
             return 0.00;
         }
-        
+
         return parameters.insertionEmission; //insertion state
     }
-    
+
     /** @brief Transition probability calculation from this state to the specified `toIndex` state
      *
      *  @param toIndex Specifies which state to transit from this state
@@ -121,7 +121,7 @@ public:
      *  @return Transition probability from this state to the state indicated with `toIndex`
      */
     double transitionProbFromThisNode(const unsigned int& toIndex, HMMParameters& parameters){
-        
+
         if(MATCH_OFFSET(charIndex, 1, parameters.maxInsertion) == toIndex){
             if(isLastInsertion){
                 //match transition prob for last insertion state
@@ -129,9 +129,9 @@ public:
             }
             return parameters.matchTransition; //match transition prob
         }
-        
+
         if(index+1 == toIndex) return parameters.insertionTransition; //insertion transition
-        
+
         //deletion transition calculations: normalized polynomial distribution
         int count = 0;
         int start = 1;
@@ -142,16 +142,16 @@ public:
             count+=start;
             start*=parameters.deletionTransitionFactor;
         }
-        
+
         return (count==0)?0:transitionProb/(double)count;
     }
-    
+
     bool isMatchState() const { return isMatch; }
     bool isLastInsertionState() const { return isLastInsertion; }
     unsigned int getIndex() const { return index;}
     char getNucleotide() const { return nuc;}
     unsigned int getCharIndex() const { return charIndex; }
-    
+
 private:
     unsigned int index; //what is the index of this state in the graph
     unsigned int charIndex; //which character it corresponds to in the sequencing read
@@ -173,7 +173,7 @@ public:
             else if(type == 'M' || type == 'I') curIndex += cigar[i].count;
         }
     }
-    
+
     seqan::String<char> read;
     unsigned int pos;
 };
@@ -183,14 +183,14 @@ public:
  * operator< implemented so that std::set can evaulate this data structure
  */
 struct TransitionInfoNode{
-    
+
     int from, toState;
     TransitionInfoNode(int from, int toState):from(from), toState(toState){}
-    
+
     bool operator==(const TransitionInfoNode& rhs) const{
         return from == rhs.from && toState == rhs.toState;
     }
-    
+
     bool operator<(const TransitionInfoNode& rhs) const{
         return ((from < rhs.from) || (from == rhs.from && (toState < rhs.toState)));
     }
@@ -205,10 +205,10 @@ struct TransitionInfoNode{
 template <typename T>
 void findMaxValues(const T* values, bool* selectedIndices, const int startValues, const int endValues,
                      const size_t maxValuesSize){
-    
+
     std::priority_queue<std::pair<double, int>, std::vector<std::pair<double, int> >,
                         std::greater<std::pair<double, int> > > maxValues;
-    
+
     for(int curState = 0; curState < endValues - startValues; ++curState) {
         if(maxValues.size() < maxValuesSize)
             maxValues.push(std::pair<double, int>(values[curState], curState));
@@ -233,7 +233,7 @@ void insertNewForwardTransitions(std::vector<TransitionInfoNode>* transitionSet,
     //next insertion
     if(!node.isLastInsertionState())
         transitionSet->push_back(TransitionInfoNode(node.getIndex(), node.getIndex()+1));
-    
+
     //match and deletions
     for(int curOffset = 1; curOffset <= numberOfDeletions+1; ++curOffset)
         transitionSet->push_back(TransitionInfoNode(node.getIndex(), MATCH_OFFSET(node.getCharIndex(), curOffset,
@@ -257,23 +257,23 @@ void insertNewForwardTransitions(std::vector<TransitionInfoNode>* transitionSet,
 int fillForwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculatedTransitionProbs,
                       double** forwardMatrix, const char* shortRead, int const startPosition, int maxDistanceOnLongRead,
                       const int longReadLength, int const shortReadLength){
-    
+
     if(startPosition < 0 || startPosition >= maxDistanceOnLongRead) return -1;
     if((int)GRAPH_SIZE(longReadLength, parameters.maxInsertion) < maxDistanceOnLongRead)
         maxDistanceOnLongRead = GRAPH_SIZE(longReadLength, parameters.maxInsertion);
-    
+
     //which transitions requested from the previous time
     std::vector<TransitionInfoNode>* curTrSet = new std::vector<TransitionInfoNode>;
     //which transitions to be made for the next time
     std::vector<TransitionInfoNode>* nextTrSet = new std::vector<TransitionInfoNode>;
     std::vector<TransitionInfoNode>* tmpTrSet;
-    
+
     bool* allowedParentStates = new bool[maxDistanceOnLongRead-startPosition+1];
     std::vector<bool> hasStateBeenProcessedBefore;
     hasStateBeenProcessedBefore.resize(maxDistanceOnLongRead-startPosition+1);
     std::fill_n(hasStateBeenProcessedBefore.begin(), hasStateBeenProcessedBefore.size(), false);
     std::fill_n(allowedParentStates, maxDistanceOnLongRead-startPosition+1, false);
-    
+
     //1-initialization (t = 1)
     int curTime = 0; //represents the current time (1...T)
     insertNewForwardTransitions(curTrSet, graph[startPosition], parameters.maxDeletion, parameters.maxInsertion);
@@ -283,19 +283,19 @@ int fillForwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculat
         int transitionIndex = (curTrSet->at(curTransition).toState - matchoff)/(parameters.maxInsertion+1);
         forwardMatrix[0][curTrSet->at(curTransition).toState - startPosition] += calculatedTransitionProbs[transitionIndex]*
         graph[curTrSet->at(curTransition).toState].getEmissionProb(shortRead[curTime], parameters);
-        
+
         insertNewForwardTransitions(nextTrSet, graph[curTrSet->at(curTransition).toState], parameters.maxDeletion,
                                     parameters.maxInsertion);
     }
     curTrSet->clear();
-    
+
     //find the most likely states that should be allowed to make the next transitions
     findMaxValues(forwardMatrix[0], allowedParentStates, startPosition, maxDistanceOnLongRead, parameters.filterSize);
-    
+
     tmpTrSet = curTrSet;
     curTrSet = nextTrSet;
     nextTrSet = tmpTrSet;
-    
+
     //2-recursion (1 < t <= T)
     while (curTime < shortReadLength-1 && !curTrSet->empty()){
         curTime++;
@@ -309,7 +309,7 @@ int fillForwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculat
                     forwardMatrix[curTime-1][frontTr.from-startPosition]*
                     calculatedTransitionProbs[transitionIndex]*
                     graph[frontTr.toState].getEmissionProb(shortRead[curTime],parameters);
-                
+
                 if(!hasStateBeenProcessedBefore[frontTr.toState - startPosition]){
                     insertNewForwardTransitions(nextTrSet, graph[frontTr.toState], parameters.maxDeletion,
                                                 parameters.maxInsertion);
@@ -318,10 +318,10 @@ int fillForwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculat
             }
         }
         curTrSet->clear();
-        
+
         std::fill_n(hasStateBeenProcessedBefore.begin(), hasStateBeenProcessedBefore.size(), false);
         std::fill_n(allowedParentStates, maxDistanceOnLongRead-startPosition+1, false);
-        
+
         //find the most likely states that should be allowed to make the next transitions
         findMaxValues(forwardMatrix[curTime], allowedParentStates, startPosition, maxDistanceOnLongRead,
                       parameters.filterSize);
@@ -329,7 +329,7 @@ int fillForwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculat
         curTrSet = nextTrSet;
         nextTrSet = tmpTrSet;
     }
-    
+
     int max = -1;
     for(int curStateForMax = 0; curStateForMax < maxDistanceOnLongRead-startPosition+1; ++curStateForMax){
         if(allowedParentStates[curStateForMax] &&
@@ -337,9 +337,9 @@ int fillForwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculat
             max = curStateForMax;
         }
     }
-    
+
     delete curTrSet; delete nextTrSet; delete[] allowedParentStates;
-    
+
     return max + startPosition;
 }
 
@@ -350,9 +350,9 @@ int fillForwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculat
  */
 void insertNewBackwardTransitions(std::vector<TransitionInfoNode>* transitionSet, const SeqNode& node,
                                   const int numberOfDeletions, const int maxInsertion){
-    
+
     if(node.getCharIndex() == 0) return;
-    
+
     if(node.isMatchState()){
         for(int curBeforeOffset = 0; curBeforeOffset <= numberOfDeletions; ++curBeforeOffset){
             int offset = -1*curBeforeOffset - 1;
@@ -385,23 +385,23 @@ void insertNewBackwardTransitions(std::vector<TransitionInfoNode>* transitionSet
 bool fillBackwardMatrix(SeqNode* graph, HMMParameters parameters, double* calculatedTransitionProbs,
                         double** backwardMatrix, const char* shortRead, int startPosition, int maxDistanceOnLongRead,
                         const int longReadLength, const int shortReadLength){
-    
+
     if(maxDistanceOnLongRead < 0 || maxDistanceOnLongRead >= startPosition) return false;
     if((int) GRAPH_SIZE(longReadLength, parameters.maxInsertion) < startPosition)
         startPosition = GRAPH_SIZE(longReadLength, parameters.maxInsertion);
-    
+
     //which transitions requested from the previous time
     std::vector<TransitionInfoNode>* curTrSet = new std::vector<TransitionInfoNode>;
     //which transitions to be made for the next time
     std::vector<TransitionInfoNode>* nextTrSet = new std::vector<TransitionInfoNode>;
     std::vector<TransitionInfoNode>* tmpTrSet;
-    
+
     bool* allowedParentStates = new bool[startPosition - maxDistanceOnLongRead + 1];
     std::vector<bool> hasStateBeenProcessedBefore;
     hasStateBeenProcessedBefore.resize(startPosition - maxDistanceOnLongRead + 1);
     std::fill_n(hasStateBeenProcessedBefore.begin(), hasStateBeenProcessedBefore.size(), false);
     std::fill_n(allowedParentStates, startPosition - maxDistanceOnLongRead + 1, false);
-    
+
     //1-initialization
     int curTime = shortReadLength-1; //@curTime value is 0-based. So 0th index is the first character [T....1]
     insertNewBackwardTransitions(curTrSet, graph[startPosition], parameters.maxDeletion, parameters.maxInsertion);
@@ -413,19 +413,19 @@ bool fillBackwardMatrix(SeqNode* graph, HMMParameters parameters, double* calcul
             int transitionIndex = (curTrSet->at(curTransition).from - matchoff)/(parameters.maxInsertion+1);
             backwardMatrix[curTime][curTrSet->at(curTransition).toState - maxDistanceOnLongRead] +=
             calculatedTransitionProbs[transitionIndex];
-            
+
             insertNewBackwardTransitions(nextTrSet, graph[curTrSet->at(curTransition).toState], parameters.maxDeletion,
                                          parameters.maxInsertion);
         }
     }
     curTrSet->clear();
-    
+
     findMaxValues(backwardMatrix[curTime], allowedParentStates, maxDistanceOnLongRead, startPosition,
                   parameters.filterSize);
     tmpTrSet = curTrSet;
     curTrSet = nextTrSet;
     nextTrSet = tmpTrSet;
-    
+
     //2-recursion
     while (curTime > 0 && !curTrSet->empty()){
         curTime--;
@@ -439,7 +439,7 @@ bool fillBackwardMatrix(SeqNode* graph, HMMParameters parameters, double* calcul
                     backwardMatrix[curTime+1][frontTr.from - maxDistanceOnLongRead]*
                     calculatedTransitionProbs[transitionIndex]*
                     graph[frontTr.from].getEmissionProb(shortRead[curTime+1], parameters);
-                
+
                 if(!hasStateBeenProcessedBefore[frontTr.toState - maxDistanceOnLongRead]){
                     insertNewBackwardTransitions(nextTrSet, graph[frontTr.toState], parameters.maxDeletion,
                                                  parameters.maxInsertion);
@@ -448,20 +448,20 @@ bool fillBackwardMatrix(SeqNode* graph, HMMParameters parameters, double* calcul
             }
         }
         curTrSet->clear();
-        
+
         std::fill_n(hasStateBeenProcessedBefore.begin(), hasStateBeenProcessedBefore.size(), false);
-        
+
         std::fill_n(allowedParentStates, startPosition - maxDistanceOnLongRead + 1, false);
-        
+
         findMaxValues(backwardMatrix[curTime], allowedParentStates, maxDistanceOnLongRead, startPosition,
                       parameters.filterSize);
         tmpTrSet = curTrSet;
         curTrSet = nextTrSet;
         nextTrSet = tmpTrSet;
     }
-    
+
     delete curTrSet; delete nextTrSet; delete[] allowedParentStates;
-    
+
     return true;
 }
 
@@ -475,44 +475,44 @@ void calculateViterbiPool(SeqNode* graph, HMMParameters parameters, double** tra
         std::lock_guard<std::mutex> lk(indexMutex);
         curSequence = seqIndex++;
     }
-    
+
     while(curSequence < length(sequence)){
-        
+
         std::vector<std::map<int, int> > backtrace; //index
         unsigned int startState = MATCH_OFFSET(curSequence*seqLength, 0, parameters.maxInsertion);
         unsigned int endState = MATCH_OFFSET(((curSequence+1)* seqLength) + 1, 0, parameters.maxInsertion);
-        
+
         if(endState > numberOfStates-1) endState = numberOfStates-1;
         unsigned int totalStates = endState - startState + 1;
-        
+
         std::vector<bool> allowedParentStates; //index - offset
         allowedParentStates.resize(totalStates);
         std::fill_n(allowedParentStates.begin(), allowedParentStates.size(), false);
-        
+
         std::set<int>* curTrSet = new std::set<int>(); //index
         std::set<int>* nextTrSet = new std::set<int>(); //index
         std::set<int>* tmpTrSet; //index
-        
+
         std::map<int, double>* prevViterbi = new std::map<int, double>(); //index
         std::map<int, double>* curViterbi = new std::map<int, double>(); //index
         std::map<int, double>* tmpViterbi; //index
         std::map<int, double>::iterator itVit;
-        
+
         //initialization step t = 1 (curTime = 0)
         std::vector<TransitionInfoNode> curStateTransitions; //pushing real index
         insertNewForwardTransitions(&curStateTransitions, graph[startState], parameters.maxDeletion, parameters.maxInsertion);
         backtrace.push_back(std::map<int, int >());
-        
+
         unsigned int curTime = 0;
         prevViterbi->clear();
         while(!curStateTransitions.empty()){
-            
+
             int next = curStateTransitions.begin()->toState;
             int transitionIndex = (next - startState)/(parameters.maxInsertion+1); //0->insertion, 1-> match, 2,3...->deletions
-            
+
             if(next <= (int) endState && transitionProbs[startState][transitionIndex] > 0.001){
                 (*prevViterbi)[next] = log10(transitionProbs[startState][transitionIndex]) + log10(emissionProbs[next].first);
-                
+
                 curTrSet->insert(next);
                 allowedParentStates[next-startState] = true;
                 backtrace[curTime][next] = curStateTransitions.begin()->from; //offset
@@ -521,36 +521,36 @@ void calculateViterbiPool(SeqNode* graph, HMMParameters parameters, double** tra
         }
         curStateTransitions.clear();
         curTime++;
-        
+
         bool finished = false;
         int maxFinalStateTime = 0;
         double maxFinalStateValue = INT_MIN;
         while(!finished && curTime < (parameters.maxInsertion+1)*seqLength){
-            
+
             //new storage for the current time
             curViterbi->clear();
             backtrace.push_back(std::map<int, int>());
-            
+
             for(std::set<int>::iterator itSet = (*curTrSet).begin(); itSet != curTrSet->end(); ++itSet){
                 //calculate the viterbi values from this state to the states that it has transitions
                 int fromState = (*itSet);
                 //if this state is one of the major ones from the previous time
                 if(allowedParentStates[fromState-startState]){
-                    
+
                     insertNewForwardTransitions(&curStateTransitions, graph[fromState], parameters.maxDeletion,
                                                 parameters.maxInsertion);
                     for(size_t toStateIndex = 0; toStateIndex < curStateTransitions.size(); ++toStateIndex){
-                        
+
                         int toState = curStateTransitions[toStateIndex].toState;
                         int matchoff = MATCH_OFFSET(graph[fromState].getCharIndex(), 0, parameters.maxInsertion);
                         //0->insertion, 1-> match, 2,3...->deletions
                         int transitionIndex = (toState - matchoff)/(parameters.maxInsertion+1);
-                        
+
                         if(toState <= (int) endState && transitionProbs[fromState][transitionIndex] > 0.001){
-                            
+
                             double newViterbi = (*prevViterbi)[fromState] +
                             log10(transitionProbs[fromState][transitionIndex]) + log10(emissionProbs[toState].first);
-                            
+
                             itVit = curViterbi->find(toState);
                             if(itVit == curViterbi->end() || (*curViterbi)[toState] < newViterbi){
                                 //regular viterbi here
@@ -560,14 +560,14 @@ void calculateViterbiPool(SeqNode* graph, HMMParameters parameters, double** tra
                             }
                         }
                     }
-                    
+
                     curStateTransitions.clear();
                 }
             }
-            
+
             std::fill_n(allowedParentStates.begin(), allowedParentStates.size(), false);
             curTrSet->clear();
-            
+
             //find the most possible states that will contribute to the viterbi of the next time
             std::priority_queue<std::pair<double, int>, std::vector<std::pair<double, int> >,
             std::greater<std::pair<double, int> > > maxValues;
@@ -580,33 +580,33 @@ void calculateViterbiPool(SeqNode* graph, HMMParameters parameters, double** tra
                     maxValues.push(std::pair<double, int>((*curViterbi)[*itSet], *itSet));
                 }
             }
-            
+
             while(!maxValues.empty()){
                 allowedParentStates.operator[](maxValues.top().second - startState) = true;
                 maxValues.pop();
             }
-            
+
             if(allowedParentStates[totalStates-1] &&
                (maxFinalStateTime == 0 || (*curViterbi)[endState] > maxFinalStateValue)){
                 maxFinalStateTime = curTime;
                 maxFinalStateValue = (*curViterbi)[endState];
             }
-            
+
             //stop condition: we've reached final state and max valued final state is "way" left behind the current time
             if(maxFinalStateTime > 0 && (int) curTime > maxFinalStateTime + 20) finished = true;
             else curTime++;
-            
+
             //swaps
             tmpTrSet = curTrSet; curTrSet = nextTrSet; nextTrSet = tmpTrSet;
             tmpViterbi = curViterbi; curViterbi = prevViterbi; prevViterbi = tmpViterbi;
         }
-        
+
         curTrSet->clear();
         nextTrSet->clear();
         allowedParentStates.clear();
         delete curTrSet; delete nextTrSet;
         delete curViterbi; delete prevViterbi;
-        
+
         if(maxFinalStateTime > 0){
             resize(sequence[curSequence], maxFinalStateTime);
             int lastIndexUsed = endState;
@@ -616,7 +616,7 @@ void calculateViterbiPool(SeqNode* graph, HMMParameters parameters, double** tra
                 lastIndexUsed = curIndex;
             }
         }
-        
+
         {//block for obtaining new index for the next long read
             std::lock_guard<std::mutex> lk(indexMutex);
             curSequence = seqIndex++;
@@ -627,13 +627,13 @@ void calculateViterbiPool(SeqNode* graph, HMMParameters parameters, double** tra
 void backtraceWithViterbi(SeqNode* graph, HMMParameters parameters, double** transitionProbs,
                          std::pair<double, char>* emissionProbs, unsigned int numberOfStates, unsigned int thread,
                          unsigned int longReadLength, seqan::String<seqan::Dna5String>& sequence){
-    
+
     if(longReadLength > 0){
         std::vector<std::thread> threads;
         unsigned int seqIndex = 0;
         unsigned int batchSize = (parameters.batchSize == 0)?longReadLength:parameters.batchSize;
         resize(sequence, ((longReadLength-1)/batchSize) + 1);
-        
+
         for(unsigned int i = 0; i < thread; ++i){
             threads.push_back(std::thread(calculateViterbiPool, graph, parameters, transitionProbs, emissionProbs,
                                           batchSize, numberOfStates, std::ref(seqIndex), std::ref(sequence)));
@@ -645,13 +645,13 @@ void backtraceWithViterbi(SeqNode* graph, HMMParameters parameters, double** tra
 void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedReads, unsigned int assemblySize,
                      SeqNode* sequencingGraph, double** transitionProbs, double** emissionProbs,
                      int* stateProcessedCount, int** transitionProcessedCount, unsigned int& readIndex){
-    
+
     unsigned int curRead = 0; //0-based. refers to the current read id
     {//block for obtaining new index for the next long read
         std::lock_guard<std::mutex> lk(indexMutex);
         curRead = readIndex++;
     }
-    
+
     std::vector<TransitionInfoNode> curStateTransitions;
     std::vector<TransitionInfoNode> stateTransitions; //all possible transitions from a state to another
     insertNewForwardTransitions(&stateTransitions, sequencingGraph[0], parameters.maxDeletion, parameters.maxInsertion);
@@ -661,24 +661,24 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
     for(unsigned int curTr = 0; curTr < numOfTransitions; ++curTr)
         calculatedTransitionProbs[curTr]=sequencingGraph[0].transitionProbFromThisNode(stateTransitions[curTr].toState,
                                                                                        parameters);
-    
+
     //@dynamic init
     double* curStateTransitionLikelihood = new double[numOfTransitions];
     //@dynamic init
     double* curStateEmissionProbs = new double[totalNuc];
     while(curRead < alignedReads.size()){
-        
+
         //to which character should correction extend at maximum
         unsigned int readLength = (unsigned int) seqan::length(alignedReads[curRead].read);
         unsigned int maxTransition = readLength + readLength/20 + 1;
         if(readLength < 500) maxTransition = readLength + readLength/3 + 1;
-        
+
         unsigned int maxDistanceOnLongRead = std::min(alignedReads[curRead].pos+maxTransition, assemblySize);
         //states prior to this wont be processed. offset value is to ignore these states
         unsigned int offset = MATCH_OFFSET(alignedReads[curRead].pos, -1, parameters.maxInsertion);
         //maximum number of states to be processed
         unsigned int fbMatrixSize = MATCH_OFFSET(maxDistanceOnLongRead, 1, parameters.maxInsertion) - offset;
-        
+
         if(fbMatrixSize > 0){
             int j; //j value in i,j transitions
             //@dynamic init
@@ -699,22 +699,22 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                                                      forwardMatrix, toCString(alignedReads[curRead].read), offset,
                                                      MATCH_OFFSET(maxDistanceOnLongRead, 1, parameters.maxInsertion),
                                                      assemblySize, readLength);
-        
+
             if(startForBackward != -1 && sequencingGraph[startForBackward].getCharIndex() > alignedReads[curRead].pos){
                 startForBackward = MATCH_OFFSET(sequencingGraph[startForBackward].getCharIndex(), 1,
                                                 parameters.maxInsertion);
-                
+
                 if(fillBackwardMatrix(sequencingGraph, parameters, calculatedTransitionProbs, backwardMatrix,
                                       toCString(alignedReads[curRead].read), startForBackward, offset,
                                       assemblySize, readLength)){
                     //updating probabilities wrt the f/b matrices computed just now
                     for(int curState = INSERTION_OFFSET(alignedReads[curRead].pos, -1, 1, parameters.maxInsertion);
                         curState < startForBackward; ++curState){
-                        
+
                         if(sequencingGraph[curState].isLastInsertionState())
                             //for the last insertion state, the insertion probs change
                             calculatedTransitionProbs[1] = parameters.matchTransition + parameters.insertionTransition;
-                        
+
                         if(curState-offset < fbMatrixSize){
                             int matchoff = MATCH_OFFSET(sequencingGraph[curState].getCharIndex(), 0,
                                                         parameters.maxInsertion);
@@ -722,7 +722,7 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                             std::fill_n(curStateEmissionProbs, totalNuc, 0.0);
                             insertNewForwardTransitions(&curStateTransitions, sequencingGraph[curState],
                                                         parameters.maxDeletion, parameters.maxInsertion);
-                            
+
                             for(unsigned int t = 0; t < readLength; ++t){
                                 //transition probabilities
                                 if(t < readLength-1){
@@ -736,11 +736,11 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                                             calculatedTransitionProbs[transitionIndex]*
                                             sequencingGraph[j].getEmissionProb(alignedReads[curRead].read[t+1],
                                                                                parameters)*backwardMatrix[t+1][j-offset];
-                                            
+
                                         }
                                     }
                                 }
-                                
+
                                 //emission probabilities
                                 char emitChar = (alignedReads[curRead].read[t] != 'N')?
                                 alignedReads[curRead].read[t]:
@@ -766,12 +766,12 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                                     processedTransitionProb += calculatedTransitionProbs[i];
                                 }
                             }
-                            
+
                             if(totalEmissionProbs != 0 && curState < startForBackward){
                                 if(totalTransitionLikelihoods != 0){
                                     {//block for updating the transition probs and the transition proccessed count
                                         std::lock_guard<std::mutex> lk(transitionProbMutex);
-                                    
+
                                         for(unsigned int i = (sequencingGraph[curState].isLastInsertionState())?1:0;
                                             i < numOfTransitions; ++i){
                                             if(curStateTransitionLikelihood[i] > 0 || i == 0){
@@ -783,20 +783,20 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                                         }
                                     }
                                 }
-                                
+
                                 {//block for updating the emission probs and the state processed count
                                     std::lock_guard<std::mutex> lk(emissionProbMutex);
-                                    
+
                                     emissionProbs[curState][A] += curStateEmissionProbs[A]/totalEmissionProbs;
                                     emissionProbs[curState][T] += curStateEmissionProbs[T]/totalEmissionProbs;
                                     emissionProbs[curState][G] += curStateEmissionProbs[G]/totalEmissionProbs;
                                     emissionProbs[curState][C] += curStateEmissionProbs[C]/totalEmissionProbs;
-                                    
+
                                     stateProcessedCount[curState]++;
                                 }
                             }
                         }
-                        
+
                         //for the last insertion state, the insertion probs change so that it wont have insertion
                         //transition. putting it back to normal now
                         if(sequencingGraph[curState].isLastInsertionState())
@@ -804,18 +804,18 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                     }
                 }
             }
-            
+
             for(unsigned int i = 0; i < readLength; ++i) { delete[] backwardMatrix[i]; delete[] forwardMatrix[i];}
             delete[] backwardMatrix;
             delete[] forwardMatrix;
         }
-        
+
         {//block for obtaining new index for the next long read
             std::lock_guard<std::mutex> lk(indexMutex);
             curRead = readIndex++;
         }
     }
-    
+
     delete[] calculatedTransitionProbs;
     delete[] curStateTransitionLikelihood;
     delete[] curStateEmissionProbs;
@@ -823,11 +823,11 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
 
 void fillBuffer(seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex, seqan::BamAlignmentRecord& record,
                 std::vector<Read>& reads, const uint64_t& contigId, unsigned int mapQ, unsigned int size){
-    
+
     reads.clear();
-    
+
     while((int) contigId == record.rID && reads.size() < size){
-        
+
         if(!hasFlagUnmapped(record) && record.mapQ >= mapQ){
             seqan::Dna5String alignedString;
             int qId;
@@ -838,7 +838,7 @@ void fillBuffer(seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex, 
                     reads.push_back(Read(alignedString, record.beginPos+1, record.cigar));
             }
         }
-        
+
         if(!atEnd(alignmentFileIn)) readRecord(record, alignmentFileIn);
         else{record.rID = -1; break;}
     }
@@ -921,7 +921,7 @@ bool polishContig(HMMParameters parameters, std::vector<seqan::BamFileIn>& align
         std::fill_n(transitionProbs[curState], numOfTransitions, 0.0);
         std::fill_n(emissionProbs[curState], totalNuc, 0.0);
     }
-    
+
     for(unsigned int curSet = 0; curSet < alignmentSetsIn.size(); ++curSet){
         bool shouldPolish = hasAlignment[curSet];
         seqan::BamAlignmentRecord record;
@@ -932,12 +932,12 @@ bool polishContig(HMMParameters parameters, std::vector<seqan::BamFileIn>& align
             }
             if(!atEnd(alignmentSetsIn[curSet])) readRecord(record, alignmentSetsIn[curSet]);
         }
-        
+
         while(shouldPolish){
             fillBuffer(alignmentSetsIn[curSet], readFAIs[curSet], record, alignedReads, contigId, mapQ, bufSize);
             unsigned int readIndex = 0;
             std::vector<std::thread> threads;
-            
+
             //alignedReads.size will be 0 if there is no more alignment record left to read in the current file
             if(alignedReads.size()){
                 for(unsigned int i = 0; i < thread && i < alignedReads.size(); ++i){
@@ -1056,7 +1056,7 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
     std::vector<seqan::BamIndex<seqan::Bai> > baiIndices(alignmentSets.size()); //indexed alignment files
     std::vector<seqan::FaiIndex> readFAIs(alignmentSets.size()); //indexed read sets
     for(unsigned int i = 0; i < alignmentSets.size(); ++i){
-        
+
         if (!open(alignmentSetsIn[i], toCString(alignmentSets[i]))){
             std::cerr << "ERROR: Could not open " << alignmentSets[i] << std::endl;
             return false;
@@ -1068,7 +1068,7 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
             std::cerr << "ERROR: " << e.what() << std::endl;
             return false;
         }
-        
+
         //fetching indexed alignment files
         seqan::CharString baiFileName = alignmentSets[i];
         seqan::CharString baiExt = ".bai";
@@ -1077,7 +1077,7 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
             std::cerr << "ERROR: Could not read BAI index file " << baiFileName << ". Please index your alignment "
             << "file with \"samtools index\" command\n"; return 1;
         }
-        
+
         //fetching/building&saving FAI files for each of the read sets
         if(!seqan::open(readFAIs[i], toCString(readSets[i]))){
             if(!build(readFAIs[i], toCString(readSets[i]))){
@@ -1111,13 +1111,13 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
     uint64_t contigId = 0;
     while(contigId < nContigs){
         std::fill_n(hasAlignment.begin(), hasAlignment.size(), false);
-        
+
         //name of the current contig to polish
         seqan::CharString curContigName = (seqan::CharString) seqan::sequenceName(assemblyFAI, (unsigned int) contigId);
         seqan::Dna5String curSeq; //assembly contig
         seqan::readSequence(curSeq, assemblyFAI, (unsigned int) contigId);
         seqan::Dna5String corr;
-        
+
         bool shouldPolish = false;
         bool check = false;
         for(unsigned int i = 0; i < alignmentSetsIn.size(); ++i){
@@ -1128,12 +1128,14 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
             hasAlignment[i] = check;
             if(hasAlignment[i]) shouldPolish = true;
         }
-        
+
         //start polishing
         if(shouldPolish){
             polishContig(parameters, alignmentSetsIn, baiIndices, hasAlignment, readFAIs, curSeq, contigId, corr,
                          mapQ, bufSize, thread);
             if(length(corr) > 0) curSeq = corr;
+        }else{
+          std::cerr << "The contig with id " << toCString(curContigName) << " could not be polished because there is no read aligning to it. Original (i.e., unpolished) sequence will be reported.";
         }
         writeRecord(correctedReadsOut, curContigName, curSeq);
         ++contigId;
@@ -1146,10 +1148,10 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
 }
 
 int main(int argc, const char** argv){
-    
+
     CommandLineParser options;
     seqan::ArgumentParser::ParseResult parseRes = parseCommandOptions(options, argc, argv);
-    
+
     if(parseRes != seqan::ArgumentParser::PARSE_OK){
         return parseRes == seqan::ArgumentParser::PARSE_ERROR;
     }
@@ -1157,14 +1159,14 @@ int main(int argc, const char** argv){
     HMMParameters parameters(options.filterSize, options.viterbiFilterSize, options.maxDeletion, options.maxInsertion,
                              options.batchSize, options.matchTransition, options.insertionTransition,
                              options.deletionTransitionFactor, options.matchEmission);
-    
+
     if(!options.shouldQuite){
         std::cout << "Assembly: " << toCString(options.assembly) << std::endl <<
         "Pair of a set of reads and their alignments:" << std::endl;
-        
+
         for(unsigned int i = 0; i < options.readSets.size(); ++i)
             std::cout << toCString(options.readSets.at(i)) << ", " << toCString(options.alignmentSets.at(i)) << std::endl;
-        
+
         std::cout << "Output file: " << options.output << std::endl << "Min mapping quality: " << options.mapQ <<
         std::endl << "Filter size: " << parameters.filterSize << std::endl << "Viterbi filter size: " <<
         parameters.viterbiFilterSize << std::endl << "Viterbi batch size: " << parameters.batchSize << std::endl <<
@@ -1177,9 +1179,9 @@ int main(int argc, const char** argv){
         parameters.mismatchEmission << std::endl << "Insertion emission probability: " << parameters.insertionEmission
         << std::endl << "Max thread: " << options.maxThread << std::endl;
     }
-    
+
     polish(parameters, options.assembly, options.readSets, options.alignmentSets, options.output, options.mapQ,
            options.maxThread, options.shouldQuite);
-    
+
     return 0;
 }
