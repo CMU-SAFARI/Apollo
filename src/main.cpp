@@ -1135,7 +1135,7 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
                          mapQ, bufSize, thread);
             if(length(corr) > 0) curSeq = corr;
         }else{
-          std::cerr << "The contig with id " << toCString(curContigName) << " could not be polished because there is no read aligning to it. Original (i.e., unpolished) sequence will be reported.";
+          std::cerr << "The contig with id " << toCString(curContigName) << " could not be polished because there is no read aligning to it. Original (i.e., unpolished) sequence will be reported." << std::endl;
         }
         writeRecord(correctedReadsOut, curContigName, curSeq);
         ++contigId;
