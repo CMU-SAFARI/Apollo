@@ -60,8 +60,8 @@ parseCommandOptions(CommandLineParser& options, int argc, char const **argv){
     using namespace std;
     seqan::ArgumentParser parser("Apollo: A Sequencing-Technology-Independent, Scalable, and Accurate Assembly Polishing Algorithm");
 
-    setVersion(parser, "1.0");
-    setDate(parser, "February 2019");
+    setVersion(parser, "1.1");
+    setDate(parser, "July 2019");
 
 
     addOption(parser, seqan::ArgParseOption("a", "assembly", "The fast{a,q} file which contains the assembly constructed"

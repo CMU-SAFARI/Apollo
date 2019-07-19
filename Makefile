@@ -10,7 +10,7 @@ LIB=./utils/lib/
 LIB_PARAMS=$(foreach d, $(LIB), -L$d)
 
 #paramaters as suggested by seqan
-CXXLAGS=$(INC_PARAMS) -std=c++14 -O3 -DNDEBUG -DSEQAN_HAS_ZLIB=1 -DSEQAN_HAS_BZIP2=1 -W -Wall -pedantic
+CXXLAGS=$(INC_PARAMS) -std=c++14 -O3 -DNDEBUG -DSEQAN_HAS_ZLIB=1 -DSEQAN_HAS_BZIP2=1 -DSEQAN_DISABLE_VERSION_CHECK=YES -W -Wall -pedantic
 LDFLAGS=
 LDLIBS=$(LIB_PARAMS) -lz -lbz2
 
@@ -65,13 +65,13 @@ all: $(OBJS)
 	cd ./utils/bzip2-1.0.6/; make install PREFIX=../
 	rm -rf ./utils/bzip2-1.0.6/
 
-./utils/include/seqan/basic.h: ./utils/seqan-library-2.4.0.tar.xz
+./utils/include/seqan/basic.h: ./utils/seqan.tar.gz
 	rm -rf ./utils/include/seqan/
 	mkdir -p ./utils/include/
 	mkdir -p ./utils/lib/
-	tar -xf ./utils/seqan-library-2.4.0.tar.xz -C ./utils/
-	mv ./utils/seqan-library-2.4.0/include/* ./utils/include/
-	rm -rf ./utils/seqan-library-2.4.0
+	tar -xzf ./utils/seqan.tar.gz -C ./utils/
+	mv ./utils/seqan ./utils/include/
+# 	rm -rf ./utils/seqan-library-2.4.0
 
 clean:
 	$(RM) $(OBJS) ./bin/ ./utils/include/ ./utils/lib/ ./utils/share/ ./utils/man/ ./utils/bin/

@@ -30,6 +30,7 @@
 #include <seqan/file.h>
 #include <seqan/seq_io.h>
 #include <seqan/bam_io.h>
+#include <seqan/bam_io/bam_index_bai.h>
 #include <mutex>
 #include <condition_variable>
 
@@ -173,7 +174,7 @@ public:
             else if(type == 'M' || type == 'I') curIndex += cigar[i].count;
         }
     }
-
+    
     seqan::String<char> read;
     unsigned int pos;
 };
@@ -642,16 +643,8 @@ void backtraceWithViterbi(SeqNode* graph, HMMParameters parameters, double** tra
     }
 }
 
-void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedReads, unsigned int assemblySize,
-                     SeqNode* sequencingGraph, double** transitionProbs, double** emissionProbs,
-                     int* stateProcessedCount, int** transitionProcessedCount, unsigned int& readIndex){
-
-    unsigned int curRead = 0; //0-based. refers to the current read id
-    {//block for obtaining new index for the next long read
-        std::lock_guard<std::mutex> lk(indexMutex);
-        curRead = readIndex++;
-    }
-
+void calculateFBPool(HMMParameters parameters, const std::vector<Read>& reads, unsigned int assemblySize, SeqNode* sequencingGraph, double** transitionProbs, double** emissionProbs, int* stateProcessedCount, int** transitionProcessedCount, unsigned int& readIndex){
+    
     std::vector<TransitionInfoNode> curStateTransitions;
     std::vector<TransitionInfoNode> stateTransitions; //all possible transitions from a state to another
     insertNewForwardTransitions(&stateTransitions, sequencingGraph[0], parameters.maxDeletion, parameters.maxInsertion);
@@ -666,16 +659,23 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
     double* curStateTransitionLikelihood = new double[numOfTransitions];
     //@dynamic init
     double* curStateEmissionProbs = new double[totalNuc];
-    while(curRead < alignedReads.size()){
-
+    
+    unsigned int curRead = 0; //0-based. refers to the current read id
+    {//block for obtaining the next aligned read
+        std::lock_guard<std::mutex> lk(indexMutex);
+        curRead = readIndex++;
+    }
+    
+    while(curRead < reads.size()){
+        
         //to which character should correction extend at maximum
-        unsigned int readLength = (unsigned int) seqan::length(alignedReads[curRead].read);
+        unsigned int readLength = (unsigned int) seqan::length(reads[curRead].read);
         unsigned int maxTransition = readLength + readLength/20 + 1;
         if(readLength < 500) maxTransition = readLength + readLength/3 + 1;
 
-        unsigned int maxDistanceOnLongRead = std::min(alignedReads[curRead].pos+maxTransition, assemblySize);
+        unsigned int maxDistanceOnLongRead = std::min(reads[curRead].pos+maxTransition, assemblySize);
         //states prior to this wont be processed. offset value is to ignore these states
-        unsigned int offset = MATCH_OFFSET(alignedReads[curRead].pos, -1, parameters.maxInsertion);
+        unsigned int offset = MATCH_OFFSET(reads[curRead].pos, -1, parameters.maxInsertion);
         //maximum number of states to be processed
         unsigned int fbMatrixSize = MATCH_OFFSET(maxDistanceOnLongRead, 1, parameters.maxInsertion) - offset;
 
@@ -696,19 +696,19 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                 std::fill_n(backwardMatrix[i], fbMatrixSize, 0);
             }
             int startForBackward = fillForwardMatrix(sequencingGraph, parameters, calculatedTransitionProbs,
-                                                     forwardMatrix, toCString(alignedReads[curRead].read), offset,
+                                                     forwardMatrix, toCString(reads[curRead].read), offset,
                                                      MATCH_OFFSET(maxDistanceOnLongRead, 1, parameters.maxInsertion),
                                                      assemblySize, readLength);
 
-            if(startForBackward != -1 && sequencingGraph[startForBackward].getCharIndex() > alignedReads[curRead].pos){
+            if(startForBackward != -1 && sequencingGraph[startForBackward].getCharIndex() > reads[curRead].pos){
                 startForBackward = MATCH_OFFSET(sequencingGraph[startForBackward].getCharIndex(), 1,
                                                 parameters.maxInsertion);
 
                 if(fillBackwardMatrix(sequencingGraph, parameters, calculatedTransitionProbs, backwardMatrix,
-                                      toCString(alignedReads[curRead].read), startForBackward, offset,
+                                      toCString(reads[curRead].read), startForBackward, offset,
                                       assemblySize, readLength)){
                     //updating probabilities wrt the f/b matrices computed just now
-                    for(int curState = INSERTION_OFFSET(alignedReads[curRead].pos, -1, 1, parameters.maxInsertion);
+                    for(int curState = INSERTION_OFFSET(reads[curRead].pos, -1, 1, parameters.maxInsertion);
                         curState < startForBackward; ++curState){
 
                         if(sequencingGraph[curState].isLastInsertionState())
@@ -734,7 +734,7 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                                             curStateTransitionLikelihood[transitionIndex] +=
                                             forwardMatrix[t][curState-offset]*
                                             calculatedTransitionProbs[transitionIndex]*
-                                            sequencingGraph[j].getEmissionProb(alignedReads[curRead].read[t+1],
+                                            sequencingGraph[j].getEmissionProb(reads[curRead].read[t+1],
                                                                                parameters)*backwardMatrix[t+1][j-offset];
 
                                         }
@@ -742,8 +742,8 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
                                 }
 
                                 //emission probabilities
-                                char emitChar = (alignedReads[curRead].read[t] != 'N')?
-                                alignedReads[curRead].read[t]:
+                                char emitChar = (reads[curRead].read[t] != 'N')?
+                                reads[curRead].read[t]:
                                 (sequencingGraph[curState].isMatchState())?
                                 sequencingGraph[curState].getNucleotide():'\0';
                                 Nucleotide chosenNuc = (emitChar == 'A' || emitChar == 'a')?A:
@@ -809,8 +809,8 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
             delete[] backwardMatrix;
             delete[] forwardMatrix;
         }
-
-        {//block for obtaining new index for the next long read
+        
+        {//block for obtaining the next aligned read
             std::lock_guard<std::mutex> lk(indexMutex);
             curRead = readIndex++;
         }
@@ -823,11 +823,11 @@ void calculateFBPool(HMMParameters parameters, const std::vector<Read>& alignedR
 
 void fillBuffer(seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex, seqan::BamAlignmentRecord& record,
                 std::vector<Read>& reads, const uint64_t& contigId, unsigned int mapQ, unsigned int size){
-
+    
     reads.clear();
-
+    
     while((int) contigId == record.rID && reads.size() < size){
-
+        
         if(!hasFlagUnmapped(record) && record.mapQ >= mapQ){
             seqan::Dna5String alignedString;
             int qId;
@@ -838,7 +838,7 @@ void fillBuffer(seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex, 
                     reads.push_back(Read(alignedString, record.beginPos+1, record.cigar));
             }
         }
-
+        
         if(!atEnd(alignmentFileIn)) readRecord(record, alignmentFileIn);
         else{record.rID = -1; break;}
     }
@@ -852,14 +852,19 @@ void fillBuffer(seqan::BamFileIn& alignmentFileIn, seqan::FaiIndex& readsIndex, 
  *  @param thread Number of threads that can be used
  *  @return correctedContig Polished version of @contig
  */
-bool polishContig(HMMParameters parameters, std::vector<seqan::BamFileIn>& alignmentSetsIn,
-                  std::vector<seqan::BamIndex<seqan::Bai> >& baiIndices, std::vector<bool>& hasAlignment,
-                  std::vector<seqan::FaiIndex>& readFAIs, const seqan::Dna5String& contig,
-                  const uint64_t& contigId, seqan::Dna5String& correctedContig, unsigned int mapQ,
-                  unsigned int bufSize, unsigned int thread){
-
-    std::vector<Read> alignedReads; //aligned reads
+bool polishContig(HMMParameters parameters, std::vector<seqan::BamFileIn>& alignmentSetsIn, const std::vector<seqan::BamIndex<seqan::Bai> >& baiIndices, const std::vector<seqan::FaiIndex>& readFAIs, const seqan::Dna5String& contig, const uint64_t& contigId, seqan::Dna5String& correctedContig, unsigned int mapQ, unsigned int thread){
+    
+    seqan::String<seqan::BamAlignmentRecord> alignedReadRecords;
+    size_t curSet = 0;
     unsigned int contigLength = (unsigned int)length(contig);
+    
+    while(!length(alignedReadRecords) && curSet < alignmentSetsIn.size()){
+        viewRecords(alignedReadRecords, alignmentSetsIn[curSet], baiIndices[curSet], (int)contigId, 1, contigLength);
+        curSet++;
+    }
+    
+    //we searched through the entire read-alignment sets but no read aligns to that contig
+    if(!length(alignedReadRecords)) return false;
 
     //@dynamic init. array
     unsigned int hmmGraphSize = GRAPH_SIZE(contigLength, parameters.maxInsertion);
@@ -921,34 +926,46 @@ bool polishContig(HMMParameters parameters, std::vector<seqan::BamFileIn>& align
         std::fill_n(transitionProbs[curState], numOfTransitions, 0.0);
         std::fill_n(emissionProbs[curState], totalNuc, 0.0);
     }
-
-    for(unsigned int curSet = 0; curSet < alignmentSetsIn.size(); ++curSet){
-        bool shouldPolish = hasAlignment[curSet];
+    
+    while(length(alignedReadRecords)){
+        unsigned int readIndex = 0;
+        std::vector<std::thread> threads;
+        std::vector<Read> reads;
         seqan::BamAlignmentRecord record;
-        if(shouldPolish){
-            if (!jumpToRegion(alignmentSetsIn[curSet], shouldPolish, (int)contigId, 0, (int)length(contig), baiIndices[curSet])){
-                std::cerr << "ERROR: Could not jump to " << 0 << ":" << length(contig) << "\n";
-                shouldPolish = false;
+        
+        while(length(alignedReadRecords)){
+            
+            record = front(alignedReadRecords);
+            seqan::Dna5String alignedString;
+            
+            if(!hasFlagUnmapped(record) && record.mapQ >= mapQ){
+                int qId;
+                if(getIdByName(qId, readFAIs[curSet-1], record.qName)){
+                    readSequence(alignedString, readFAIs[curSet-1], qId);
+                    if(hasFlagRC(record)) reverseComplement(alignedString);
+                    if(length(alignedString) > 0 && record.beginPos >= 0)
+                        reads.push_back(Read(alignedString, record.beginPos+1, record.cigar));
+                }else{
+                    std::cout << "There is no read with id " << record.qName << " . Please check your FASTA file: " << readFAIs[curSet-1].fastaFilename << std::endl;
+                }
             }
-            if(!atEnd(alignmentSetsIn[curSet])) readRecord(record, alignmentSetsIn[curSet]);
+            
+            seqan::erase(alignedReadRecords, 0);
+        }
+        
+        //alignedReads.size will be 0 if there is no more alignment record left to read in the current file
+        for(unsigned int i = 0; i < thread && i < length(alignedReadRecords); ++i){
+            threads.push_back(std::thread(calculateFBPool, parameters, std::ref(reads), contigLength, sequencingGraph, transitionProbs, emissionProbs, stateProcessedCount, transitionProcessedCount, std::ref(readIndex)));
         }
 
-        while(shouldPolish){
-            fillBuffer(alignmentSetsIn[curSet], readFAIs[curSet], record, alignedReads, contigId, mapQ, bufSize);
-            unsigned int readIndex = 0;
-            std::vector<std::thread> threads;
-
-            //alignedReads.size will be 0 if there is no more alignment record left to read in the current file
-            if(alignedReads.size()){
-                for(unsigned int i = 0; i < thread && i < alignedReads.size(); ++i){
-                    threads.push_back(std::thread(calculateFBPool, parameters, std::ref(alignedReads), length(contig),
-                                                  sequencingGraph, transitionProbs, emissionProbs, stateProcessedCount,
-                                                  transitionProcessedCount, std::ref(readIndex)));
-                }
-            }else shouldPolish = false;
-
-            //buffer is cleared here. every thread needs to wait before the buffer gets reloaded again
-            for(unsigned int i = 0; i < threads.size(); ++i) threads[i].join();
+        //buffer is cleared here. every thread needs to wait before the buffer gets reloaded again
+        for(unsigned int i = 0; i < threads.size(); ++i) threads[i].join();
+        
+        clear(alignedReadRecords);
+        
+        while(!length(alignedReadRecords) && curSet < alignmentSetsIn.size()){
+            viewRecords(alignedReadRecords, alignmentSetsIn[curSet], baiIndices[curSet], (int)contigId, 1, contigLength);
+            curSet++;
         }
     }
 
@@ -1036,9 +1053,6 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
             std::vector<seqan::String<char> > alignmentSets, seqan::String<char> outputFile, unsigned int mapQ,
             unsigned int thread, bool shouldQuite){
 
-    //hybridMode is true of there are multiple alignment files provided
-//    bool hybridMode = (alignmentSets.size()>1)?true:false;
-
     //Reading Assembly and generating bitvectors showing whether a contig is polished
     //Index file for assembly fasta
     seqan::FaiIndex assemblyFAI;
@@ -1101,38 +1115,22 @@ bool polish(HMMParameters parameters, seqan::String<char> assemblyFile, std::vec
         return false;
     }
 
-    unsigned int bufSize = (3*thread > 2000)?3*thread:2000;//how many alignment records to fetch from disk to mem
     if(!shouldQuite) std::cout << "Polishing has begun..." << std::endl;
     seqan::SeqFileOut correctedReadsOut(correctedReadStream, seqan::Fasta());
-    std::vector<bool> hasAlignment(alignmentSetsIn.size());
 
     //for each contig, read all the aligned reads, save them, and correct the contig if there is at least one
     //alignment record
     uint64_t contigId = 0;
     while(contigId < nContigs){
-        std::fill_n(hasAlignment.begin(), hasAlignment.size(), false);
-
+        
         //name of the current contig to polish
-        seqan::CharString curContigName = (seqan::CharString) seqan::sequenceName(assemblyFAI, (unsigned int) contigId);
+        seqan::CharString curContigName = (seqan::CharString)seqan::sequenceName(assemblyFAI, (unsigned int) contigId);
         seqan::Dna5String curSeq; //assembly contig
-        seqan::readSequence(curSeq, assemblyFAI, (unsigned int) contigId);
+        seqan::readSequence(curSeq, assemblyFAI, (unsigned int)contigId);
         seqan::Dna5String corr;
-
-        bool shouldPolish = false;
-        bool check = false;
-        for(unsigned int i = 0; i < alignmentSetsIn.size(); ++i){
-            if (!jumpToRegion(alignmentSetsIn[i], check, (int) contigId, 0, (int) length(curSeq), baiIndices[i])){
-                std::cerr << "ERROR: Could not jump to " << 0 << ":" << length(curSeq) << "\n";
-                return false;
-            }
-            hasAlignment[i] = check;
-            if(hasAlignment[i]) shouldPolish = true;
-        }
-
+        
         //start polishing
-        if(shouldPolish){
-            polishContig(parameters, alignmentSetsIn, baiIndices, hasAlignment, readFAIs, curSeq, contigId, corr,
-                         mapQ, bufSize, thread);
+        if(polishContig(parameters, alignmentSetsIn, baiIndices, readFAIs, curSeq, contigId, corr, mapQ, thread)){
             if(length(corr) > 0) curSeq = corr;
         }else{
           std::cerr << "The contig with id " << toCString(curContigName) << " could not be polished because there is no read aligning to it. Original (i.e., unpolished) sequence will be reported." << std::endl;
