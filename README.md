@@ -104,8 +104,6 @@ samtools index alignment.bam
 apollo -a assembly.fasta -r pacbio.fasta -m alignment.bam -o polished.fasta
 ```
 
-*Note that we observed a strange behaviour when using the SeqAn library. The above code will generate an alignment file where you will have a few mappings (e.g., 1-2 mappings) to some of the contigs. However, Apollo will report that it cannot polish the contig because there is no mapping even though there is one or two. This issue is because SeqAn fails to identify the contigs if a small amount of reads maps to the contig. Until we resolve this issue related to SeqAn, you should assume that Apollo will not polish a contig if it has a few reads aligning to the contig.*
-
 ## Problems You May Encounter
 
 ### Input Format
