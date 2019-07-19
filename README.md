@@ -10,12 +10,12 @@ Apollo is an assembly polishing algorithm that attempts to correct the errors in
 ```bash
 git clone https://github.com/CMU-SAFARI/Apollo.git
 ```
-*  Change directory to `Apollo/src/` and run the Makefile. If everything goes well, you will have a binary called `apollo` inside the `bin` folder.
+*  Change directory to `./Apollo` and run the Makefile. If everything goes well, you will have a binary called `apollo` inside the `bin` folder.
 
 ```bash
-cd Apollo/src/
+cd ./Apollo
 make
-cd ../bin/
+cd ./bin
 ```
 Now you can copy this binary wherever you want (preferably under a directory that is included in your `$PATH`). Assuming that you are in the directory that the binary is located, you may run the command below to display the help message.
 
@@ -93,7 +93,7 @@ You may use the following test run to check whether everything works as intended
 #create a test folder
 mkdir test; cd test
 #download a read set that is publicly available by PacBio and only fetch small number of read set as this is a sanity check
-curl -s http://datasets.pacb.com.s3.amazonaws.com/2014/c_elegans/additional_data/2590969/0002/Analysis_Results/m140928_104939_ethan_c100699582550000001823139903261541_s1_p0.3.subreads.fasta | head -500 > pacbio.fasta
+curl -s http://datasets.pacb.com.s3.amazonaws.com/2014/c_elegans/additional_data/2590969/0002/Analysis_Results/m140928_104939_ethan_c100699582550000001823139903261541_s1_p0.3.subreads.fasta | head -5000 > pacbio.fasta
 #download the already constructed assembly
 curl -L -o assembly.fasta http://datasets.pacb.com.s3.amazonaws.com/2014/c_elegans/40X/polished_assembly/polished_assembly.fasta
 #generate read-to-assembly file
@@ -103,6 +103,8 @@ samtools index alignment.bam
 #polishing. Here we assume that "apollo" is in your $PATH. If not you should specify the exact path to "apollo"
 apollo -a assembly.fasta -r pacbio.fasta -m alignment.bam -o polished.fasta
 ```
+
+*Note that we observed a strange behaviour when using the SeqAn library. The above code will generate an alignment file where you will have a few mappings (e.g., 1-2 mappings) to some of the contigs. However, Apollo will report that it cannot polish the contig because there is no mapping even though there is one or two. This issue is because SeqAn fails to identify the contigs if a small amount of reads maps to the contig. Until we resolve this issue related to SeqAn, you should assume that Apollo will not polish a contig if it has a few reads aligning to the contig.*
 
 ## Problems You May Encounter
 
