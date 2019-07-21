@@ -933,9 +933,9 @@ bool polishContig(HMMParameters parameters, std::vector<seqan::BamFileIn>& align
         std::vector<Read> reads;
         seqan::BamAlignmentRecord record;
         
-        while(length(alignedReadRecords)){
+        for(unsigned int i = 0; i < length(alignedReadRecords); ++i){
             
-            record = front(alignedReadRecords);
+            record = alignedReadRecords[i];
             seqan::Dna5String alignedString;
             
             if(!hasFlagUnmapped(record) && record.mapQ >= mapQ){
@@ -950,18 +950,20 @@ bool polishContig(HMMParameters parameters, std::vector<seqan::BamFileIn>& align
                 }
             }
             
-            seqan::erase(alignedReadRecords, 0);
+//            seqan::erase(alignedReadRecords, 0);
         }
         
+        clear(alignedReadRecords);
+        
         //alignedReads.size will be 0 if there is no more alignment record left to read in the current file
-        for(unsigned int i = 0; i < thread && i < length(alignedReadRecords); ++i){
+        for(unsigned int i = 0; i < thread && i < reads.size(); ++i){
             threads.push_back(std::thread(calculateFBPool, parameters, std::ref(reads), contigLength, sequencingGraph, transitionProbs, emissionProbs, stateProcessedCount, transitionProcessedCount, std::ref(readIndex)));
         }
 
         //buffer is cleared here. every thread needs to wait before the buffer gets reloaded again
         for(unsigned int i = 0; i < threads.size(); ++i) threads[i].join();
         
-        clear(alignedReadRecords);
+//        clear(alignedReadRecords);
         
         while(!length(alignedReadRecords) && curSet < alignmentSetsIn.size()){
             viewRecords(alignedReadRecords, alignmentSetsIn[curSet], baiIndices[curSet], (int)contigId, 1, contigLength);
