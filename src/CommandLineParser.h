@@ -64,11 +64,11 @@ parseCommandOptions(CommandLineParser& options, int argc, char const **argv){
     setDate(parser, "July 2019");
 
 
-    addOption(parser, seqan::ArgParseOption("a", "assembly", "The fast{a,q} file which contains the assembly constructed"
-                                            " using provided long reads.", seqan::ArgParseArgument::INPUT_FILE, "FILE", false));
+    addOption(parser, seqan::ArgParseOption("a", "assembly", "The fasta file which contains the assembly",
+                                            seqan::ArgParseArgument::INPUT_FILE, "FILE", false));
     setRequired(parser, "assembly");
 
-    addOption(parser, seqan::ArgParseOption("r", "read", "A fast{a,q} file which contains a set of reads that are "
+    addOption(parser, seqan::ArgParseOption("r", "read", "A fasta file which contains a set of reads that are "
                                             "aligned to the assembly.", seqan::ArgParseArgument::INPUT_FILE, "FILE", true));
     setRequired(parser, "read");
 
