@@ -803,7 +803,7 @@ bool fillBuffer(seqan::BamFileIn& alignmentFileIn, const seqan::FaiIndex& readsI
     reads.clear();
     while((int)contigId == record.rID && reads.size() < size){
         
-        if(!hasFlagUnmapped(record) && record.mapQ >= mapQ){
+        if(!hasFlagUnmapped(record) && !hasFlagLast(record) && record.mapQ >= mapQ){
             seqan::Dna5String alignedString;
             int qId;
             if(getIdByName(qId, readsIndex, record.qName)){
