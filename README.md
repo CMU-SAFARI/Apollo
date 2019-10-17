@@ -20,7 +20,7 @@ cd ./bin
 Now you can copy this binary wherever you want (preferably under a directory that is included in your `$PATH`). Assuming that you are in the directory that the binary is located, you may run the command below to display the help message.
 
 ```bash
-apollo -h
+./apollo -h
 ```
 
 ## Assembly polishing
