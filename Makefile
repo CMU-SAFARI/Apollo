@@ -11,6 +11,9 @@ LIB_PARAMS=$(foreach d, $(LIB), -L$d)
 
 #paramaters as suggested by seqan
 CXXLAGS=$(INC_PARAMS) -std=c++14 -O3 -DNDEBUG -DSEQAN_HAS_ZLIB=1 -DSEQAN_HAS_BZIP2=1 -DSEQAN_DISABLE_VERSION_CHECK=YES -W -Wall -pedantic
+#Parameters for debug purposes. Comment the above line and out the below one to compile in debug mode
+#CXXLAGS=$(INC_PARAMS) -std=c++14 -g -O0 -DSEQAN_ENABLE_DEBUG=1 -DSEQAN_HAS_ZLIB=1 -DSEQAN_HAS_BZIP2=1 -DSEQAN_DISABLE_VERSION_CHECK=YES -W -Wall -pedantic
+
 LDFLAGS=
 LDLIBS=$(LIB_PARAMS) -lz -lbz2
 
@@ -39,7 +42,7 @@ endif
 
 
 #can add many src files if it is necessary in future (by putting spaces)
-SRC=./src/main.cpp
+SRC= ./src/HMMDecoder.cpp ./src/HMMTrainer.cpp ./src/HMMGraph.cpp ./src/Polisher.cpp ./src/main.cpp 
 OBJS=$(subst .cpp,.o,$(SRC))
 
 default: all
@@ -48,9 +51,21 @@ all: $(OBJS)
 	mkdir -p ./bin/
 	$(CXX) $(LDFLAGS) -o ./bin/apollo $(OBJS) $(LDLIBS)
 
-./src/main.o: ./src/main.cpp ./src/CommandLineParser.h ./utils/lib/libz.a ./utils/lib/libbz2.a ./utils/include/seqan/basic.h
-	$(CXX) $(CXXLAGS) -c -o ./src/main.o ./src/main.cpp $(LDLIBS)
+./src/main.o: ./src/Polisher.o ./src/main.cpp ./src/CommandLineParser.h
+	$(CXX) $(CXXLAGS) -c -o ./src/main.o ./src/main.cpp
 
+./src/Polisher.o: ./src/HMMDecoder.o ./src/HMMTrainer.o ./src/HMMGraph.o ./src/Polisher.cpp ./src/Polisher.h
+	$(CXX) $(CXXLAGS) -c -o ./src/Polisher.o ./src/Polisher.cpp
+
+./src/HMMDecoder.o: ./src/HMMGraph.o ./src/HMMDecoder.cpp ./src/HMMDecoder.h
+	$(CXX) $(CXXLAGS) -c -o ./src/HMMDecoder.o ./src/HMMDecoder.cpp
+
+./src/HMMTrainer.o: ./src/HMMGraph.o ./src/HMMTrainer.cpp ./src/HMMTrainer.h
+	$(CXX) $(CXXLAGS) -c -o ./src/HMMTrainer.o ./src/HMMTrainer.cpp
+
+./src/HMMGraph.o: ./src/HMMGraph.cpp ./src/HMMGraph.h ./src/HMMCommons.h ./utils/lib/libz.a ./utils/lib/libbz2.a ./utils/include/seqan/basic.h
+	$(CXX) $(CXXLAGS) -c -o ./src/HMMGraph.o ./src/HMMGraph.cpp
+	
 ./utils/lib/libz.a: ./utils/zlib-1.2.11.tar.gz
 	mkdir -p ./utils/include/
 	mkdir -p ./utils/lib/

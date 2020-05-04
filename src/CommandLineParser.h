@@ -1,16 +1,18 @@
-/** @file CommandLineParser.h
- * @brief Parses command line options.
- *
- * It is used to parse command line options for both preprocessing and correction step.
- * Copyright © 2019 Can Firtina. It is protected under licence:
- *
- * @author Can Firtina
- * @bug No known bug
- */
+/** @file main.cpp
+* @brief One sentence brief
+*
+* More details
+* In multiple lines
+* Copyright © 2020 SAFARI
+*
+* @author Can Firtina
+* @bug No known bug
+*/
 
 #ifndef COMMAND_LINE_PARSER_H_
 #define COMMAND_LINE_PARSER_H_
 
+#include <stdio.h>
 #include <iostream>
 #include <vector>
 #include <seqan/arg_parse.h>
@@ -27,18 +29,18 @@ struct CommandLineParser
     insertionTransition(0.1), shouldQuite(false), matchEmission(0.97), maxThread(1), mapQ(0),
     deletionTransitionFactor(2.5){}
 
-    unsigned int filterSize;
-    unsigned int viterbiFilterSize;
-    unsigned int maxDeletion;
-    unsigned int maxInsertion;
-    unsigned int batchSize;
+    unsigned filterSize;
+    unsigned viterbiFilterSize;
+    unsigned maxDeletion;
+    unsigned maxInsertion;
+    unsigned batchSize;
     double matchTransition;
 
     double insertionTransition;
     bool shouldQuite;
     double matchEmission;
-    unsigned int maxThread;
-    unsigned int mapQ;
+    unsigned maxThread;
+    unsigned mapQ;
     double deletionTransitionFactor;
 
     seqan::CharString assembly;
@@ -60,8 +62,8 @@ parseCommandOptions(CommandLineParser& options, int argc, char const **argv){
     using namespace std;
     seqan::ArgumentParser parser("Apollo: A Sequencing-Technology-Independent, Scalable, and Accurate Assembly Polishing Algorithm");
 
-    setVersion(parser, "1.1");
-    setDate(parser, "July 2019");
+    setVersion(parser, "2.0");
+    setDate(parser, "May 2020");
 
 
     addOption(parser, seqan::ArgParseOption("a", "assembly", "The fasta file which contains the assembly",
@@ -164,17 +166,17 @@ parseCommandOptions(CommandLineParser& options, int argc, char const **argv){
 
         getOptionValue(options.assembly, parser, "a");
 
-        unsigned int readCount = seqan::getOptionValueCount(parser, "r");
+        unsigned readCount = seqan::getOptionValueCount(parser, "r");
         const std::vector<std::string> readOptionValues = getOptionValues(parser, "r");
-        for(unsigned int i = 0; i < readCount; ++i) options.readSets.push_back(readOptionValues.at(i));
+        for(unsigned i = 0; i < readCount; ++i) options.readSets.push_back(readOptionValues.at(i));
 
-        unsigned int alignmentCount = seqan::getOptionValueCount(parser, "m");
+        unsigned alignmentCount = seqan::getOptionValueCount(parser, "m");
         if(readCount != alignmentCount){
             std::cerr << "ERROR: Number of the read sets provided is not equal to the number of alignment sets " << std::endl;
             return seqan::ArgumentParser::PARSE_ERROR;
         }
         const std::vector<std::string> alignmentOptionValues = getOptionValues(parser, "m");
-        for(unsigned int i = 0; i < alignmentCount; ++i) options.alignmentSets.push_back(alignmentOptionValues.at(i));
+        for(unsigned i = 0; i < alignmentCount; ++i) options.alignmentSets.push_back(alignmentOptionValues.at(i));
 
         getOptionValue(options.output, parser, "o");
         getOptionValue(options.mapQ, parser, "q");
