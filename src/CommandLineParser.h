@@ -22,8 +22,8 @@
  *  @see parseCommandOptions()
  *  @see parseInitialCommand()
  */
-struct CommandLineParser
-{
+struct CommandLineParser{
+    
     CommandLineParser():
     filterSize(100), viterbiFilterSize(5), maxDeletion(10), maxInsertion(3), batchSize(5000), matchTransition(0.85),
     insertionTransition(0.1), shouldQuite(false), matchEmission(0.97), maxThread(1), mapQ(0),

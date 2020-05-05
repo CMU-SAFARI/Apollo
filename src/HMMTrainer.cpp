@@ -80,8 +80,6 @@ void HMMTrainer::maximizeEM(){
             graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition;
     }
 
-    delete[] graph->stateProcessedCount;
-
     //@dynamic init
     graph->maxEmissionProbs = new std::pair<prob_prec, char>[graph->numberOfStates];
     for(unsigned curState = 0; curState < graph->numberOfStates; ++curState){

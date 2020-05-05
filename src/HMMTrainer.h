@@ -17,6 +17,7 @@
 class HMMTrainer{
     
     void fbThreadPool(const std::vector<Read>& reads, ind_prec& readIndex);
+    
     ind_prec fillForwardMatrix(prob_prec** forwardMatrix, const char* read, const ind_prec startPosition,
                                ind_prec maxDistanceOnContig, const ind_prec readLength);
     
