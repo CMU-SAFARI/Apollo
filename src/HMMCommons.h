@@ -35,11 +35,12 @@ public:
     HMMParameters(){}
     
     HMMParameters(cnt_prec filterSize, cnt_prec viterbiFilterSize, cnt_prec maxDeletion, cnt_prec maxInsertion,
-                  cnt_prec batchSize, cnt_prec mapQ, prob_prec matchTransition, prob_prec insertionTransition,
-                  prob_prec deletionTransitionFactor, prob_prec matchEmission):
+                  cnt_prec batchSize, cnt_prec chunkSize, cnt_prec mapQ, prob_prec matchTransition,
+                  prob_prec insertionTransition, prob_prec deletionTransitionFactor, prob_prec matchEmission):
     filterSize(filterSize), viterbiFilterSize(viterbiFilterSize), maxDeletion(maxDeletion), maxInsertion(maxInsertion),
-    batchSize(batchSize), mapQ(mapQ), matchTransition(matchTransition), insertionTransition(insertionTransition),
-    deletionTransitionFactor(deletionTransitionFactor), matchEmission(matchEmission){
+    batchSize(batchSize), chunkSize(chunkSize), mapQ(mapQ), matchTransition(matchTransition),
+    insertionTransition(insertionTransition), deletionTransitionFactor(deletionTransitionFactor),
+    matchEmission(matchEmission){
         deletionTransition = 1.000 - (matchTransition + insertionTransition);
         mismatchEmission = (prob_prec)(1 - matchEmission)/3.00;
         insertionEmission = (prob_prec)1/3.00; //total nucleotide = 4; Emission prob for each except one
@@ -47,14 +48,14 @@ public:
 
     HMMParameters(const HMMParameters& cpy):
     filterSize(cpy.filterSize), viterbiFilterSize(cpy.viterbiFilterSize), maxDeletion(cpy.maxDeletion),
-    maxInsertion(cpy.maxInsertion), batchSize(cpy.batchSize), mapQ(cpy.mapQ), matchTransition(cpy.matchTransition),
-    insertionTransition(cpy.insertionTransition), deletionTransition(cpy.deletionTransition),
-    deletionTransitionFactor(cpy.deletionTransitionFactor), matchEmission(cpy.matchEmission),
-    mismatchEmission(cpy.mismatchEmission), insertionEmission(cpy.insertionEmission){}
+    maxInsertion(cpy.maxInsertion), batchSize(cpy.batchSize), chunkSize(cpy.chunkSize), mapQ(cpy.mapQ),
+    matchTransition(cpy.matchTransition), insertionTransition(cpy.insertionTransition),
+    deletionTransition(cpy.deletionTransition), deletionTransitionFactor(cpy.deletionTransitionFactor),
+    matchEmission(cpy.matchEmission), mismatchEmission(cpy.mismatchEmission), insertionEmission(cpy.insertionEmission){}
     
     HMMParameters& operator=(const HMMParameters& rhs){
         filterSize = rhs.filterSize; viterbiFilterSize = rhs.viterbiFilterSize; maxDeletion = rhs.maxDeletion;
-        maxInsertion = rhs.maxInsertion; batchSize = rhs.batchSize; mapQ = rhs.mapQ;
+        maxInsertion = rhs.maxInsertion; batchSize = rhs.batchSize; chunkSize = rhs.chunkSize; mapQ = rhs.mapQ;
         matchTransition = rhs.matchTransition; insertionTransition = rhs.insertionTransition;
         deletionTransition = rhs.deletionTransition; deletionTransitionFactor = rhs.deletionTransitionFactor;
         matchEmission = rhs.matchEmission; mismatchEmission = rhs.mismatchEmission;
@@ -64,15 +65,19 @@ public:
     }
     
     friend std::ostream& operator<<(std::ostream& out, const HMMParameters& rhs){
-        out << "Min mapping quality: " << rhs.mapQ << std::endl << "Filter size: " << rhs.filterSize << std::endl
-        << "Viterbi filter size: " << rhs.viterbiFilterSize << std::endl << "Viterbi batch size: " << rhs.batchSize <<
-        std::endl << "Maximum insertion: " << rhs.maxInsertion << std::endl << "Maximum deletion: " << rhs.maxDeletion
-        << std::endl << "Match transition probability: " << rhs.matchTransition << std::endl <<
-        "Insertion transition probability: " << rhs.insertionTransition << std::endl <<
-        "Deletion transition probability: " << rhs.deletionTransition << std::endl <<
+        out << "Maximum consecutive insertions: " << rhs.maxInsertion << std::endl <<
+        "Maximum consecutive deletions: " << rhs.maxDeletion << std::endl <<
+        "Transition probability to match states: " << rhs.matchTransition << std::endl <<
+        "Transition probability to insertion states: " << rhs.insertionTransition << std::endl <<
+        "Overall deletion transition probabilities from a state: " << rhs.deletionTransition << std::endl <<
         "Deletion transition factor: " << rhs.deletionTransitionFactor << std::endl <<
-        "Match emission probability: " << rhs.matchEmission << std::endl << "Mismatch emission probability: " <<
-        rhs.mismatchEmission << std::endl << "Insertion emission probability: " << rhs.insertionEmission;
+        "Emission probability of a matching character: " << rhs.matchEmission << std::endl <<
+        "Emission probability of a substitution (i.e., mismatch) character: " << rhs.mismatchEmission << std::endl <<
+        "Emission probability of an inserted character: " << rhs.insertionEmission << std::endl <<
+        "Filter size: " << rhs.filterSize << std::endl <<
+        "Viterbi filter size: " << rhs.viterbiFilterSize << std::endl <<
+        "Viterbi batch size: " << rhs.batchSize << std::endl <<
+        "Read chunking size (0 for original length): " << rhs.chunkSize << std::endl;
         
         return out;
     }
@@ -82,6 +87,7 @@ public:
     cnt_prec maxDeletion;
     cnt_prec maxInsertion;
     cnt_prec batchSize;
+    cnt_prec chunkSize;
     cnt_prec mapQ;
     prob_prec matchTransition;
     prob_prec insertionTransition;
@@ -172,8 +178,7 @@ private:
 
 struct Read{
 public:
-    Read(const seqan::Dna5String& readSeq, ind_prec pos, const seqan::String<seqan::CigarElement<> >& cigar):
-    pos(pos){
+    Read(const seqan::Dna5String& readSeq, ind_prec pos, const seqan::String<seqan::CigarElement<> >& cigar): pos(pos){
         this->read = readSeq;
         ind_prec curIndex = 0;
         for(ind_prec i = 0; i < length(cigar); ++i){
@@ -183,8 +188,11 @@ public:
         }
     }
     
+    Read(const seqan::Dna5String& readSeq, ind_prec pos, ind_prec endPos = 0):read(readSeq), pos(pos), endPos(endPos){}
+    
     seqan::String<char> read;
-    ind_prec pos;
+    ind_prec pos; //inclusive
+    ind_prec endPos; //exclusive
 };
 
 /*
@@ -233,6 +241,66 @@ inline void findMaxValues(const T* values, bool* selectedIndices, const ind_prec
     }
 }
 
+//pos 0-based but the reference character starts at 1 so Read.pos is 1-based
+inline void chunkReads(const seqan::Dna5String& readSeq, ind_prec pos,
+                       const seqan::String<seqan::CigarElement<> >& cigar, ind_prec chunkSize, std::vector<Read>& reads){
+    ind_prec curStart = pos;
+    ind_prec curEnd = pos;
+    if(chunkSize == 0) chunkSize = (ind_prec)length(readSeq);
+    
+    seqan::String<seqan::CigarElement<> > cpyCigar = cigar;
+    seqan::Dna5String readStr = readSeq;
+    seqan::Dna5String curChunkedStr;
+    ind_prec curIndex = 0;
+    
+    for(ind_prec i = 0; i < length(cpyCigar); ++i){
+        char type = cpyCigar[i].operation;
+        if(type == 'S') seqan::erase(readStr, curIndex, curIndex+cpyCigar[i].count);
+        else if(type == 'M'){
+            
+            ind_prec j = 0;
+            while(length(curChunkedStr) < chunkSize && j < cpyCigar[i].count){
+                appendValue(curChunkedStr, readStr[curIndex++]);
+                curEnd++;
+                j++;
+            }
+            
+            if(length(curChunkedStr) == chunkSize){
+                reads.push_back(Read(curChunkedStr, curStart, curEnd));
+                curStart = curEnd;
+                clear(curChunkedStr);
+                
+                cpyCigar[i].count -= j;
+                --i;
+            }
+            
+        }
+        else if(type == 'I') {
+            
+            ind_prec j = 0;
+            while(length(curChunkedStr) < chunkSize && j < cpyCigar[i].count){
+                appendValue(curChunkedStr, readStr[curIndex++]);
+                j++;
+            }
+            
+            if(length(curChunkedStr) == chunkSize){
+                reads.push_back(Read(curChunkedStr, curStart, curEnd));
+                curStart = curEnd;
+                clear(curChunkedStr);
+                
+                cpyCigar[i].count -= j;
+                --i;
+            }
+        }
+        else if(type == 'D'){
+            curEnd+=cpyCigar[i].count;
+        }
+    }
+    
+    if(length(curChunkedStr) > 0){
+        reads.push_back(Read(curChunkedStr, curStart, curEnd));
+    }
+}
 /*
 * Using the information provided with node and numberOfDeletions, inserts the transitions that should be made afterward
 * If you are going to change the transition structure, change it from there. These are imaginary edges in the graph.
@@ -277,7 +345,7 @@ inline void insertNewBackwardTransitions(std::vector<TransitionInfoNode>* transi
 
 inline bool fillBuffer(seqan::BamFileIn& alignmentFileIn, const seqan::FaiIndex& readsIndex,
                        seqan::BamAlignmentRecord& record, std::vector<Read>& reads, const int32_t& contigId,
-                       cnt_prec mapQ, ind_prec size){
+                       cnt_prec mapQ, ind_prec size, cnt_prec chunkSize){
     
     reads.clear();
     while(contigId == record.rID && reads.size() < size){
@@ -288,8 +356,9 @@ inline bool fillBuffer(seqan::BamFileIn& alignmentFileIn, const seqan::FaiIndex&
             if(getIdByName(qId, readsIndex, record.qName)){
                 readSequence(alignedString, readsIndex, qId);
                 if(hasFlagRC(record)) reverseComplement(alignedString);
-                if(length(alignedString) > 0 && record.beginPos >= 0)
-                    reads.push_back(Read(alignedString, record.beginPos+1, record.cigar));
+                if(length(alignedString) > 0 && record.beginPos >= 0){
+                    chunkReads(alignedString, record.beginPos+1, record.cigar, chunkSize, reads);
+                }
             }
         }
         

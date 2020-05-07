@@ -8,12 +8,12 @@ Apollo is an assembly polishing algorithm that attempts to correct the errors in
 * Download the code from its GitHub repository.
 
 ```bash
-git clone https://github.com/CMU-SAFARI/Apollo.git
+git clone https://github.com/CMU-SAFARI/Apollo.git apollo
 ```
 *  Change directory to `./Apollo` and run the Makefile. If everything goes well, you will have a binary called `apollo` inside the `bin` folder.
 
 ```bash
-cd ./Apollo
+cd ./apollo
 make
 cd ./bin
 ```
@@ -79,10 +79,10 @@ TATTATATTA
 
 The restriction on the number of characters per line is required as Apollo constructs the index file (i.e., FAI file) for the input read set. Further information about indexing and the requirements can be found at: https://seqan.readthedocs.io/en/master/Tutorial/InputOutput/IndexedFastaIO.html
 
-* If there are *too* long reads in a input read set, we recomment dividing these reads into smaller chunks to reduce the memory requirements. Apollo provides a sample script file under *utils* folder on Github page called `chunk_reads.sh`. One can simply use the following code to divide the reads in `input.fasta` into chunks of size 1000 (maximum):
+* If there are *too* long reads in a input read set, we recomment dividing these reads into smaller chunks to reduce the memory requirements. Apollo supports chunking during run time. One can simply use command to divide the reads into chunks of size 1000 (maximum) while polishing:
 
 ```bash
-chunk_reads.sh input.fasta 1000 input_1k.fasta
+./apollo -a assembly.fasta -r reads1.fasta -r reads2.fasta -m alignment1.bam -m alignment2.bam -t 30 -o polished.fasta -c 1000
 ```
 
 ## Example run
@@ -101,7 +101,7 @@ minimap2 -x map-pb -a assembly.fasta pacbio.fasta | samtools view -h -F4 | samto
 #indexing the alignment file
 samtools index alignment.bam
 #polishing. Here we assume that "apollo" is in your $PATH. If not you should specify the exact path to "apollo"
-apollo -a assembly.fasta -r pacbio.fasta -m alignment.bam -o polished.fasta
+apollo -a assembly.fasta -r pacbio.fasta -m alignment.bam -o polished.fasta -c 1000
 ```
 
 ## Problems You May Encounter

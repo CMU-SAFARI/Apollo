@@ -31,7 +31,7 @@ void HMMTrainer::calculateFB(std::vector<seqan::BamFileIn>& alignmentSetsIn,
             std::vector<Read> reads;
             
             shouldPolish = fillBuffer(alignmentSetsIn[curSet], readFAIs[curSet], curRecords[curSet], reads,
-                                      graph->contigId, graph->params.mapQ, 50000);
+                                      graph->contigId, graph->params.mapQ, 50000, graph->params.chunkSize);
             
             //alignedReads.size will be 0 if there is no more alignment record left to read in the current file
             for(unsigned i = 0; i < thread && i < (unsigned)reads.size(); ++i)
@@ -120,16 +120,19 @@ void HMMTrainer::fbThreadPool(const std::vector<Read>& reads, ind_prec& readInde
         
         //to which character should correction extend at maximum
         //decide whether this is a short read (fragment) or long
-        ind_prec readLength = (ind_prec) seqan::length(reads[curRead].read);
+        ind_prec readLength = (ind_prec)seqan::length(reads[curRead].read);
         ind_prec maxTransition = readLength + readLength/20 + 1;
         if(readLength < 500) maxTransition = readLength + readLength/3 + 1;
 
-        ind_prec maxDistanceOnAssembly = std::min(reads[curRead].pos+maxTransition, graph->contigLength);
+        ind_prec maxDistanceOnAssembly = std::min(reads[curRead].endPos-1, graph->contigLength);
         //states prior to this wont be processed. offset value is to ignore these states
-        ind_prec offset = MATCH_OFFSET(reads[curRead].pos, -1, graph->params.maxInsertion);
+        ind_prec offset = MATCH_DOFFSET(reads[curRead].pos, 1, graph->params.maxInsertion);
         //maximum number of states to be processed
-        ind_prec fbMatrixSize = MATCH_OFFSET(maxDistanceOnAssembly, 1, graph->params.maxInsertion) - offset;
-
+        ind_prec fbMatrixSize = MATCH_OFFSET(maxDistanceOnAssembly, 1, graph->params.maxInsertion);
+        fbMatrixSize -= (fbMatrixSize >= offset)?offset:fbMatrixSize;
+        ind_prec endPosState = MATCH_OFFSET(maxDistanceOnAssembly, 1, graph->params.maxInsertion);
+        
+        //@IMPORTANT: initialization is very slow. Re-use of arrays?
         if(fbMatrixSize > 0){
             ind_prec j; //j value in i,j transitions
             //@dynamic init
@@ -147,112 +150,104 @@ void HMMTrainer::fbThreadPool(const std::vector<Read>& reads, ind_prec& readInde
                 std::fill_n(backwardMatrix[i], fbMatrixSize, 0);
             }
             
-            ind_prec startForBackward = fillForwardMatrix(forwardMatrix, toCString(reads[curRead].read), offset,
-                                                          MATCH_OFFSET(maxDistanceOnAssembly, 1,
-                                                                       graph->params.maxInsertion), readLength);
+            fillForwardMatrix(forwardMatrix, toCString(reads[curRead].read), offset, endPosState, readLength);
 
-            if(startForBackward != 0 && graph->seqGraph[startForBackward].getCharIndex() > reads[curRead].pos){
-                startForBackward = MATCH_OFFSET(graph->seqGraph[startForBackward].getCharIndex(), 1,
-                                                graph->params.maxInsertion);
+            if(fillBackwardMatrix(backwardMatrix, toCString(reads[curRead].read), endPosState, offset, readLength)){
+                //updating probabilities wrt the f/b matrices computed just now
+                for(ind_prec curState = INSERTION_DOFFSET(reads[curRead].pos, 1, 1, graph->params.maxInsertion);
+                    curState < endPosState; ++curState){
 
-                if(fillBackwardMatrix(backwardMatrix, toCString(reads[curRead].read), startForBackward, offset,
-                                      readLength)){
-                    //updating probabilities wrt the f/b matrices computed just now
-                    for(ind_prec curState = INSERTION_OFFSET(reads[curRead].pos, -1, 1, graph->params.maxInsertion);
-                        curState < startForBackward; ++curState){
+                    if(graph->seqGraph[curState].isLastInsertionState())
+                        //for the last insertion state, the insertion probs change
+                        graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition +
+                                                                 graph->params.insertionTransition;
 
-                        if(graph->seqGraph[curState].isLastInsertionState())
-                            //for the last insertion state, the insertion probs change
-                            graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition +
-                                                                     graph->params.insertionTransition;
+                    if(curState-offset < fbMatrixSize){
+                        ind_prec matchoff = MATCH_OFFSET(graph->seqGraph[curState].getCharIndex(), 0,
+                                                    graph->params.maxInsertion);
+                        std::fill_n(curStateTransitionLikelihood, graph->numOfTransitionsPerState, 0);
+                        std::fill_n(curStateEmissionProbs, totalNuc, 0);
+                        insertNewForwardTransitions(&curStateTransitions, graph->seqGraph[curState],
+                                                    graph->params.maxDeletion, graph->params.maxInsertion);
 
-                        if(curState-offset < fbMatrixSize){
-                            ind_prec matchoff = MATCH_OFFSET(graph->seqGraph[curState].getCharIndex(), 0,
-                                                        graph->params.maxInsertion);
-                            std::fill_n(curStateTransitionLikelihood, graph->numOfTransitionsPerState, 0);
-                            std::fill_n(curStateEmissionProbs, totalNuc, 0);
-                            insertNewForwardTransitions(&curStateTransitions, graph->seqGraph[curState],
-                                                        graph->params.maxDeletion, graph->params.maxInsertion);
+                        for(ind_prec t = 0; t < readLength; ++t){
+                            //transition probabilities
+                            if(t < readLength-1){
+                                for(size_t curTr = 0; curTr < curStateTransitions.size(); ++curTr){
+                                    if(curStateTransitions.at(curTr).toState - offset < fbMatrixSize){
+                                        j = curStateTransitions[curTr].toState;
+                                        //0->insertion, 1-> match, 2,3...->deletions
+                                        ind_prec transitionIndex = (j - matchoff)/(graph->params.maxInsertion+1);
+                                        curStateTransitionLikelihood[transitionIndex] +=
+                                        forwardMatrix[t][curState-offset]*
+                                        graph->preCalculatedTransitionProbs[transitionIndex]*
+                                        graph->seqGraph[j].getEmissionProb(reads[curRead].read[t+1],
+                                                                           graph->params)*backwardMatrix[t+1][j-offset];
 
-                            for(ind_prec t = 0; t < readLength; ++t){
-                                //transition probabilities
-                                if(t < readLength-1){
-                                    for(size_t curTr = 0; curTr < curStateTransitions.size(); ++curTr){
-                                        if(curStateTransitions.at(curTr).toState - offset < fbMatrixSize){
-                                            j = curStateTransitions[curTr].toState;
-                                            //0->insertion, 1-> match, 2,3...->deletions
-                                            ind_prec transitionIndex = (j - matchoff)/(graph->params.maxInsertion+1);
-                                            curStateTransitionLikelihood[transitionIndex] +=
-                                            forwardMatrix[t][curState-offset]*
-                                            graph->preCalculatedTransitionProbs[transitionIndex]*
-                                            graph->seqGraph[j].getEmissionProb(reads[curRead].read[t+1],
-                                                                               graph->params)*backwardMatrix[t+1][j-offset];
-
-                                        }
                                     }
-                                }
-
-                                //emission probabilities
-                                char emitChar = (reads[curRead].read[t] != 'N')?
-                                reads[curRead].read[t]:
-                                (graph->seqGraph[curState].isMatchState())?
-                                graph->seqGraph[curState].getNucleotide():'\0';
-                                Nucleotide chosenNuc = (emitChar == 'A' || emitChar == 'a')?A:
-                                (emitChar == 'T' || emitChar == 't')?T:
-                                (emitChar == 'G' || emitChar == 'g')?G:
-                                (emitChar == 'C' || emitChar == 'c')?C:totalNuc;
-                                if(chosenNuc < totalNuc)
-                                    curStateEmissionProbs[chosenNuc] +=
-                                    forwardMatrix[t][curState-offset]*backwardMatrix[t][curState-offset];
-                            }
-                            curStateTransitions.clear();
-                            prob_prec totalEmissionProbs = curStateEmissionProbs[A] + curStateEmissionProbs[T] +
-                            curStateEmissionProbs[G] + curStateEmissionProbs[C];
-                            prob_prec totalTransitionLikelihoods = 0;
-                            prob_prec processedTransitionProb = 0;
-                            for(ind_prec i = (graph->seqGraph[curState].isLastInsertionState())?1:0;
-                                i < graph->numOfTransitionsPerState; ++i){
-                                if(curStateTransitionLikelihood[i] > 0 || i == 0){
-                                    totalTransitionLikelihoods += curStateTransitionLikelihood[i];
-                                    processedTransitionProb += graph->preCalculatedTransitionProbs[i];
                                 }
                             }
 
-                            if(totalEmissionProbs != 0 && curState < startForBackward){
-                                if(totalTransitionLikelihoods != 0){
-                                    {//block for updating the transition probs and the transition proccessed count
-                                        std::lock_guard<std::mutex> lk(transitionProbMutex);
-
-                                        for(ind_prec i = (graph->seqGraph[curState].isLastInsertionState())?1:0;
-                                            i < graph->numOfTransitionsPerState; ++i){
-                                            if(curStateTransitionLikelihood[i] > 0 || i == 0){
-                                                graph->transitionProbs[curState][i] +=
-                                                (curStateTransitionLikelihood[i]/totalTransitionLikelihoods)*
-                                                processedTransitionProb;
-                                                graph->transitionProcessedCount[curState][i]++;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                {//block for updating the emission probs and the state processed count
-                                    std::lock_guard<std::mutex> lk(emissionProbMutex);
-
-                                    graph->emissionProbs[curState][A] += curStateEmissionProbs[A]/totalEmissionProbs;
-                                    graph->emissionProbs[curState][T] += curStateEmissionProbs[T]/totalEmissionProbs;
-                                    graph->emissionProbs[curState][G] += curStateEmissionProbs[G]/totalEmissionProbs;
-                                    graph->emissionProbs[curState][C] += curStateEmissionProbs[C]/totalEmissionProbs;
-
-                                    graph->stateProcessedCount[curState]++;
-                                }
+                            //emission probabilities
+                            char emitChar = (reads[curRead].read[t] != 'N')?
+                            reads[curRead].read[t]:
+                            (graph->seqGraph[curState].isMatchState())?
+                            graph->seqGraph[curState].getNucleotide():'\0';
+                            Nucleotide chosenNuc = (emitChar == 'A' || emitChar == 'a')?A:
+                            (emitChar == 'T' || emitChar == 't')?T:
+                            (emitChar == 'G' || emitChar == 'g')?G:
+                            (emitChar == 'C' || emitChar == 'c')?C:totalNuc;
+                            if(chosenNuc < totalNuc)
+                                curStateEmissionProbs[chosenNuc] +=
+                                forwardMatrix[t][curState-offset]*backwardMatrix[t][curState-offset];
+                        }
+                        curStateTransitions.clear();
+                        prob_prec totalEmissionProbs = curStateEmissionProbs[A] + curStateEmissionProbs[T] +
+                        curStateEmissionProbs[G] + curStateEmissionProbs[C];
+                        prob_prec totalTransitionLikelihoods = 0;
+                        prob_prec processedTransitionProb = 0;
+                        for(ind_prec i = (graph->seqGraph[curState].isLastInsertionState())?1:0;
+                            i < graph->numOfTransitionsPerState; ++i){
+                            if(curStateTransitionLikelihood[i] > 0 || i == 0){
+                                totalTransitionLikelihoods += curStateTransitionLikelihood[i];
+                                processedTransitionProb += graph->preCalculatedTransitionProbs[i];
                             }
                         }
 
-                        //for the last insertion state, the insertion probs change so that it wont have insertion
-                        //transition. putting it back to normal now
-                        if(graph->seqGraph[curState].isLastInsertionState())
-                            graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition;
+                        if(totalEmissionProbs != 0 && curState < endPosState){
+                            if(totalTransitionLikelihoods != 0){
+                                {//block for updating the transition probs and the transition proccessed count
+                                    std::lock_guard<std::mutex> lk(transitionProbMutex);
+
+                                    for(ind_prec i = (graph->seqGraph[curState].isLastInsertionState())?1:0;
+                                        i < graph->numOfTransitionsPerState; ++i){
+                                        if(curStateTransitionLikelihood[i] > 0 || i == 0){
+                                            graph->transitionProbs[curState][i] +=
+                                            (curStateTransitionLikelihood[i]/totalTransitionLikelihoods)*
+                                            processedTransitionProb;
+                                            graph->transitionProcessedCount[curState][i]++;
+                                        }
+                                    }
+                                }
+                            }
+
+                            {//block for updating the emission probs and the state processed count
+                                std::lock_guard<std::mutex> lk(emissionProbMutex);
+
+                                graph->emissionProbs[curState][A] += curStateEmissionProbs[A]/totalEmissionProbs;
+                                graph->emissionProbs[curState][T] += curStateEmissionProbs[T]/totalEmissionProbs;
+                                graph->emissionProbs[curState][G] += curStateEmissionProbs[G]/totalEmissionProbs;
+                                graph->emissionProbs[curState][C] += curStateEmissionProbs[C]/totalEmissionProbs;
+
+                                graph->stateProcessedCount[curState]++;
+                            }
+                        }
                     }
+
+                    //for the last insertion state, the insertion probs change so that it wont have insertion
+                    //transition. putting it back to normal now
+                    if(graph->seqGraph[curState].isLastInsertionState())
+                        graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition;
                 }
             }
 

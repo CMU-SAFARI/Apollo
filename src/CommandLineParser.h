@@ -25,8 +25,8 @@
 struct CommandLineParser{
     
     CommandLineParser():
-    filterSize(100), viterbiFilterSize(5), maxDeletion(10), maxInsertion(3), batchSize(5000), matchTransition(0.85),
-    insertionTransition(0.1), shouldQuite(false), matchEmission(0.97), maxThread(1), mapQ(0),
+    filterSize(100), viterbiFilterSize(5), maxDeletion(10), maxInsertion(3), batchSize(5000), chunkSize(1000),
+    matchTransition(0.85), insertionTransition(0.1), shouldQuite(false), matchEmission(0.97), maxThread(1), mapQ(0),
     deletionTransitionFactor(2.5){}
 
     unsigned filterSize;
@@ -34,6 +34,7 @@ struct CommandLineParser{
     unsigned maxDeletion;
     unsigned maxInsertion;
     unsigned batchSize;
+    unsigned chunkSize;
     double matchTransition;
 
     double insertionTransition;
@@ -153,6 +154,13 @@ parseCommandOptions(CommandLineParser& options, int argc, char const **argv){
                                             seqan::ArgParseArgument::INTEGER, "INT", false));
     setDefaultValue(getOption(parser, "batch"), options.batchSize);
     seqan::setMinValue(parser, "batch", "0");
+    
+    addOption(parser, seqan::ArgParseOption("c", "chunk", "If a read is longer than --chunk, it will be divided "
+                                            "(i.e., chunked) into multiple shorter reads of size --chunk. Helps to "
+                                            "reduce overall memory usage. Set this to 0 if you do not want chunking.",
+                                            seqan::ArgParseArgument::INTEGER, "INT", false));
+    setDefaultValue(getOption(parser, "chunk"), options.chunkSize);
+    seqan::setMinValue(parser, "chunk", "0");
 
     addOption(parser, seqan::ArgParseOption("t", "thread", "Maximum number of threads to use.",
                                             seqan::ArgParseArgument::INTEGER, "INT", false));

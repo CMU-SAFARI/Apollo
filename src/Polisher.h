@@ -25,8 +25,8 @@ public:
     ~Polisher();
     
     void setParameters(cnt_prec filterSize, cnt_prec viterbiFilterSize, cnt_prec maxDeletion, cnt_prec maxInsertion,
-                       cnt_prec batchSize, cnt_prec mapQ, prob_prec matchTransition, prob_prec insertionTransition,
-                       prob_prec deletionTransitionFactor, prob_prec matchEmission);
+                       cnt_prec batchSize, cnt_prec chunkSize, cnt_prec mapQ, prob_prec matchTransition,
+                       prob_prec insertionTransition, prob_prec deletionTransitionFactor, prob_prec matchEmission);
     
     void setParameters(const HMMParameters& parameters);
     

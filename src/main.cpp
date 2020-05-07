@@ -22,10 +22,18 @@ int main(int argc, const char** argv){
         return parseRes == seqan::ArgumentParser::PARSE_ERROR;
     }
     
+    if(!options.shouldQuite){
+        std::cout << "Assembly: " << toCString(options.assembly) << std::endl <<
+        "Pair of a set of reads and their alignments:" << std::endl;
+        for(unsigned int i = 0; i < options.readSets.size(); ++i)
+            std::cout << toCString(options.readSets.at(i)) << ", " << toCString(options.alignmentSets.at(i)) << std::endl;
+    }
+    
     Polisher* polisher = new Polisher();
-    polisher->setParameters(options.filterSize, options.viterbiFilterSize, options.maxDeletion, options.maxInsertion,
-                            options.batchSize, options.mapQ, options.matchTransition, options.insertionTransition,
-                            options.deletionTransitionFactor, options.matchEmission);
+    polisher->setParameters(options.filterSize, options.viterbiFilterSize, options.maxDeletion,
+                            options.maxInsertion, options.batchSize, options.chunkSize, options.mapQ,
+                            options.matchTransition, options.insertionTransition, options.deletionTransitionFactor,
+                            options.matchEmission);
     
     
     polisher->polish(options.assembly, options.readSets, options.alignmentSets, options.output, options.maxThread,

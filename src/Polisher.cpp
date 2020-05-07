@@ -17,11 +17,11 @@ Polisher::Polisher():isParametersSet(false){}
 Polisher::~Polisher(){}
 
 void Polisher::setParameters(cnt_prec filterSize, cnt_prec viterbiFilterSize, cnt_prec maxDeletion,cnt_prec maxInsertion,
-                             cnt_prec batchSize, cnt_prec mapQ, prob_prec matchTransition, prob_prec insertionTransition,
-                             prob_prec deletionTransitionFactor, prob_prec matchEmission){
+                             cnt_prec batchSize, cnt_prec chunkSize, cnt_prec mapQ, prob_prec matchTransition,
+                             prob_prec insertionTransition, prob_prec deletionTransitionFactor, prob_prec matchEmission){
     
-    hmmParams = HMMParameters(filterSize, viterbiFilterSize, maxDeletion, maxInsertion, batchSize, mapQ, matchTransition,
-                              insertionTransition, deletionTransitionFactor, matchEmission);
+    hmmParams = HMMParameters(filterSize, viterbiFilterSize, maxDeletion, maxInsertion, batchSize, chunkSize, mapQ,
+                              matchTransition, insertionTransition, deletionTransitionFactor, matchEmission);
     isParametersSet = true;
 }
 
@@ -41,8 +41,9 @@ bool Polisher::polish(seqan::String<char> assemblyFile, std::vector<seqan::Strin
     }
     
     if(!shouldQuite){
-        std::cout << "Output file: " << outputFile << std::endl << hmmParams << std::endl << "Max thread: " << thread
-        << std::endl;
+        std::cout << "Output file: " << outputFile << std::endl <<
+        hmmParams << std::endl <<
+        "Max thread: " << thread << std::endl;
     }
     
     //Index file for assembly fasta
