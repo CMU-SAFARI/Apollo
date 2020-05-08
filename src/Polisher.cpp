@@ -6,7 +6,7 @@
 * Copyright © 2020 SAFARI
 *
 * @author Can Firtina
-* @bug No known bug
+* @bug If there is only single alignment in the .bam file, it ignores it. -> should not ignore.
 */
 
 #include "Polisher.h"
@@ -117,6 +117,7 @@ bool Polisher::polish(seqan::String<char> assemblyFile, std::vector<seqan::Strin
         bool shouldPolish = false;
         for(size_t curSet = 0; curSet < curRecords.size() && !shouldPolish; ++curSet){
             shouldPolish |= (curRecords[curSet].rID == contigId)&(!atEnd(alignmentSetsIn[curSet]));
+            
         }
         
         //We confirmed there is an alignment for the current contig to be polished. Starting polishing.

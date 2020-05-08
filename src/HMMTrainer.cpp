@@ -174,17 +174,15 @@ void HMMTrainer::fbThreadPool(const std::vector<Read>& reads, ind_prec& readInde
                             //transition probabilities
                             if(t < readLength-1){
                                 for(size_t curTr = 0; curTr < curStateTransitions.size(); ++curTr){
-                                    if(curStateTransitions.at(curTr).toState >= offset &&
-                                       curStateTransitions.at(curTr).toState <= endPosState){
-                                        j = curStateTransitions[curTr].toState;
+                                    j = curStateTransitions[curTr].toState;
+                                    if(j >= offset && j < endPosState){
                                         //0->insertion, 1-> match, 2,3...->deletions
                                         ind_prec transitionIndex = (j - matchoff)/(graph->params.maxInsertion+1);
                                         curStateTransitionLikelihood[transitionIndex] +=
                                         forwardMatrix[t][curState-offset]*
                                         graph->preCalculatedTransitionProbs[transitionIndex]*
-                                        graph->seqGraph[j].getEmissionProb(reads[curRead].read[t+1],
-                                                                           graph->params)*backwardMatrix[t+1][j-offset];
-
+                                        graph->seqGraph[j].getEmissionProb(reads[curRead].read[t+1], graph->params)*
+                                        backwardMatrix[t+1][j-offset];
                                     }
                                 }
                             }
@@ -293,17 +291,19 @@ ind_prec HMMTrainer::fillForwardMatrix(prob_prec** forwardMatrix, const char* re
     insertNewForwardTransitions(curTrSet, graph->seqGraph[startPosition], graph->params.maxDeletion,
                                 graph->params.maxInsertion);
     for(size_t curTransition = 0; curTransition < curTrSet->size(); ++curTransition){
-        ind_prec matchoff = MATCH_OFFSET(graph->seqGraph[curTrSet->at(curTransition).from].getCharIndex(), 0,
-                                         graph->params.maxInsertion);
-        //0->insertion, 1-> match, 2,3...->deletions
-        ind_prec transitionIndex = (curTrSet->at(curTransition).toState - matchoff)/(graph->params.maxInsertion+1);
-        //@IMPORTANT: check maxPrec here.
-        forwardMatrix[0][curTrSet->at(curTransition).toState - startPosition] +=
-        graph->preCalculatedTransitionProbs[transitionIndex] *
-        graph->seqGraph[curTrSet->at(curTransition).toState].getEmissionProb(read[curTime], graph->params);
+        if(curTrSet->at(curTransition).toState < maxDistanceOnContig){
+            ind_prec matchoff = MATCH_OFFSET(graph->seqGraph[curTrSet->at(curTransition).from].getCharIndex(), 0,
+                                             graph->params.maxInsertion);
+            //0->insertion, 1-> match, 2,3...->deletions
+            ind_prec transitionIndex = (curTrSet->at(curTransition).toState - matchoff)/(graph->params.maxInsertion+1);
+            //@IMPORTANT: check maxPrec here.
+            forwardMatrix[0][curTrSet->at(curTransition).toState - startPosition] +=
+            graph->preCalculatedTransitionProbs[transitionIndex] *
+            graph->seqGraph[curTrSet->at(curTransition).toState].getEmissionProb(read[curTime], graph->params);
 
-        insertNewForwardTransitions(nextTrSet, graph->seqGraph[curTrSet->at(curTransition).toState],
-                                    graph->params.maxDeletion, graph->params.maxInsertion);
+            insertNewForwardTransitions(nextTrSet, graph->seqGraph[curTrSet->at(curTransition).toState],
+                                        graph->params.maxDeletion, graph->params.maxInsertion);
+        }
     }
     curTrSet->clear();
 
