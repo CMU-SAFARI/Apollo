@@ -10,7 +10,7 @@ Apollo is an assembly polishing algorithm that attempts to correct the errors in
 ```bash
 git clone https://github.com/CMU-SAFARI/Apollo.git apollo
 ```
-*  Change directory to `./Apollo` and run the Makefile. If everything goes well, you will have a binary called `apollo` inside the `bin` folder.
+*  Change directory to `./apollo` and run the Makefile. If everything goes well, you will have a binary called `apollo` inside the `bin` folder.
 
 ```bash
 cd ./apollo
@@ -64,7 +64,7 @@ samtools index input.bam
 
 ### Set of Reads
 
-* Apollo supports the reads set in FASTA format. For each read (i.e., sequence), the number of characters per line has to be the same, except for the last line. For example, a sequence of length 1000 can either be represented in a single line with 1000 characters or can be splitted into multiple lines where each line include the equal number of characters. Only exception here is the last line, which can have any number of characters but no more than the characters that the prior lines have. An illustration of a sequence with a length of 10 would be:
+* Apollo supports the reads set in FASTA format. For each read (i.e., sequence), the number of characters per line has to be the same, except for the last line. For example, a sequence of length 1000 can either be represented in a single line with 1000 characters or can be split into multiple lines where each line include the equal number of characters. Only exception here is the last line, which can have any number of characters but no more than the characters that the prior lines have. An illustration of a sequence with a length of 10 would be:
 
 >\>read1  
 >TAT  
@@ -79,7 +79,7 @@ TATTATATTA
 
 The restriction on the number of characters per line is required as Apollo constructs the index file (i.e., FAI file) for the input read set. Further information about indexing and the requirements can be found at: https://seqan.readthedocs.io/en/master/Tutorial/InputOutput/IndexedFastaIO.html
 
-* If there are *too* long reads in a input read set, we recomment dividing these reads into smaller chunks to reduce the memory requirements. Apollo supports chunking during run time. One can simply use command to divide the reads into chunks of size 1000 (maximum) while polishing:
+* If there are *too* long reads in a input read set, we recommend dividing these reads into smaller chunks to reduce the memory requirements. Apollo supports chunking during run time. One can simply use command to divide the reads into chunks of size 1000 (maximum) while polishing:
 
 ```bash
 ./apollo -a assembly.fasta -r reads1.fasta -r reads2.fasta -m alignment1.bam -m alignment2.bam -t 30 -o polished.fasta -c 1000
@@ -107,7 +107,7 @@ apollo -a assembly.fasta -r pacbio.fasta -m alignment.bam -o polished.fasta -c 1
 ## Problems You May Encounter
 
 ### Input Format
-* Apollo currently does not supprt reads in a compressed format such as `input.fasta.gz`. These FASTA files must be uncompresesd. Future release may support compressed files as well.
+* Apollo currently does not support reads in a compressed format such as `input.fasta.gz`. These FASTA files must be uncompressed. Future release may support compressed files as well.
 
 * Apollo currently does not support paired-end reads. Those paired-end reads can be provided as multiple input read sets to the Apollo where they also should have multiple read-to-assembly alignment files. Another option is to merge the paired-end Illumina reads into one FASTA file but one should make sure that the read ids per sequence are unique.
 

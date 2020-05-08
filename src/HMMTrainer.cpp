@@ -9,7 +9,7 @@
 * @bug No known bug
 */
 #include "HMMTrainer.h"
-#include <limits>
+//#include <limits>
 
 HMMTrainer::HMMTrainer(){graph = NULL;}
 HMMTrainer::HMMTrainer(HMMGraph* graph):graph(graph){}
@@ -121,16 +121,17 @@ void HMMTrainer::fbThreadPool(const std::vector<Read>& reads, ind_prec& readInde
         //to which character should correction extend at maximum
         //decide whether this is a short read (fragment) or long
         ind_prec readLength = (ind_prec)seqan::length(reads[curRead].read);
-        ind_prec maxTransition = readLength + readLength/20 + 1;
-        if(readLength < 500) maxTransition = readLength + readLength/3 + 1;
+//        ind_prec maxTransition = readLength + readLength/20 + 1;
+//        if(readLength < 500) maxTransition = readLength + readLength/3 + 1;
 
-        ind_prec maxDistanceOnAssembly = std::min(reads[curRead].endPos-1, graph->contigLength);
+        ind_prec maxDistanceOnAssembly = std::min(reads[curRead].endPos, graph->contigLength); //end pos exclusive
         //states prior to this wont be processed. offset value is to ignore these states
         ind_prec offset = MATCH_DOFFSET(reads[curRead].pos, 1, graph->params.maxInsertion);
         //maximum number of states to be processed
-        ind_prec fbMatrixSize = MATCH_OFFSET(maxDistanceOnAssembly, 1, graph->params.maxInsertion);
-        fbMatrixSize -= (fbMatrixSize >= offset)?offset:fbMatrixSize;
-        ind_prec endPosState = MATCH_OFFSET(maxDistanceOnAssembly, 1, graph->params.maxInsertion);
+        ind_prec endPosState = MATCH_OFFSET(maxDistanceOnAssembly, 0, graph->params.maxInsertion);
+        if(endPosState > graph->numberOfStates) endPosState = graph->numberOfStates;
+        ind_prec fbMatrixSize = (endPosState > offset)?endPosState-offset:0;
+        
         
         //@IMPORTANT: initialization is very slow. Re-use of arrays?
         if(fbMatrixSize > 0){
@@ -159,12 +160,11 @@ void HMMTrainer::fbThreadPool(const std::vector<Read>& reads, ind_prec& readInde
 
                     if(graph->seqGraph[curState].isLastInsertionState())
                         //for the last insertion state, the insertion probs change
-                        graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition +
-                                                                 graph->params.insertionTransition;
+                        graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition + graph->params.insertionTransition;
 
                     if(curState-offset < fbMatrixSize){
                         ind_prec matchoff = MATCH_OFFSET(graph->seqGraph[curState].getCharIndex(), 0,
-                                                    graph->params.maxInsertion);
+                                                         graph->params.maxInsertion);
                         std::fill_n(curStateTransitionLikelihood, graph->numOfTransitionsPerState, 0);
                         std::fill_n(curStateEmissionProbs, totalNuc, 0);
                         insertNewForwardTransitions(&curStateTransitions, graph->seqGraph[curState],
@@ -174,7 +174,8 @@ void HMMTrainer::fbThreadPool(const std::vector<Read>& reads, ind_prec& readInde
                             //transition probabilities
                             if(t < readLength-1){
                                 for(size_t curTr = 0; curTr < curStateTransitions.size(); ++curTr){
-                                    if(curStateTransitions.at(curTr).toState - offset < fbMatrixSize){
+                                    if(curStateTransitions.at(curTr).toState >= offset &&
+                                       curStateTransitions.at(curTr).toState <= endPosState){
                                         j = curStateTransitions[curTr].toState;
                                         //0->insertion, 1-> match, 2,3...->deletions
                                         ind_prec transitionIndex = (j - matchoff)/(graph->params.maxInsertion+1);
@@ -269,11 +270,11 @@ void HMMTrainer::fbThreadPool(const std::vector<Read>& reads, ind_prec& readInde
 ind_prec HMMTrainer::fillForwardMatrix(prob_prec** forwardMatrix, const char* read, const ind_prec startPosition,
                                        ind_prec maxDistanceOnContig, const ind_prec readLength){
     
-    if(startPosition == 0 || startPosition >= maxDistanceOnContig) return 0;
     if(graph->numberOfStates < maxDistanceOnContig)
         maxDistanceOnContig = graph->numberOfStates;
+    if(startPosition == 0 || startPosition >= maxDistanceOnContig) return 0;
 
-    prob_prec maxPrec = std::numeric_limits<prob_prec>::max() / 100;
+//    prob_prec maxPrec = std::numeric_limits<prob_prec>::max() / 100;
     
     //which transitions requested from the previous time
     std::vector<TransitionInfoNode>* curTrSet = new std::vector<TransitionInfoNode>;
@@ -297,7 +298,7 @@ ind_prec HMMTrainer::fillForwardMatrix(prob_prec** forwardMatrix, const char* re
         //0->insertion, 1-> match, 2,3...->deletions
         ind_prec transitionIndex = (curTrSet->at(curTransition).toState - matchoff)/(graph->params.maxInsertion+1);
         //@IMPORTANT: check maxPrec here.
-        forwardMatrix[0][curTrSet->at(curTransition).toState - startPosition] += maxPrec *
+        forwardMatrix[0][curTrSet->at(curTransition).toState - startPosition] +=
         graph->preCalculatedTransitionProbs[transitionIndex] *
         graph->seqGraph[curTrSet->at(curTransition).toState].getEmissionProb(read[curTime], graph->params);
 
@@ -363,11 +364,11 @@ ind_prec HMMTrainer::fillForwardMatrix(prob_prec** forwardMatrix, const char* re
 bool HMMTrainer::fillBackwardMatrix(prob_prec** backwardMatrix, const char* read, ind_prec startPosition,
                                     ind_prec maxDistanceOnContig, const ind_prec readLength){
     
-    if(maxDistanceOnContig == 0 || maxDistanceOnContig >= startPosition) return false;
     if(graph->numberOfStates < startPosition)
         startPosition = graph->numberOfStates;
+    if(maxDistanceOnContig == 0 || maxDistanceOnContig >= startPosition) return false;
     
-    prob_prec maxPrec = std::numeric_limits<prob_prec>::max() / 100;
+//    prob_prec maxPrec = std::numeric_limits<prob_prec>::max() / 100;
     
     //which transitions requested from the previous time
     std::vector<TransitionInfoNode>* curTrSet = new std::vector<TransitionInfoNode>;
@@ -392,7 +393,7 @@ bool HMMTrainer::fillBackwardMatrix(prob_prec** backwardMatrix, const char* read
             //0->insertion, 1-> match, 2,3...->deletions
             ind_prec transitionIndex = (curTrSet->at(curTransition).from - matchoff)/(graph->params.maxInsertion+1);
             //@IMPORTANT: check maxPrec here.
-            backwardMatrix[curTime][curTrSet->at(curTransition).toState - maxDistanceOnContig] += maxPrec *
+            backwardMatrix[curTime][curTrSet->at(curTransition).toState - maxDistanceOnContig] +=
             graph->preCalculatedTransitionProbs[transitionIndex];
 
             insertNewBackwardTransitions(nextTrSet, graph->seqGraph[curTrSet->at(curTransition).toState],

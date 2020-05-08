@@ -77,7 +77,7 @@ public:
         "Filter size: " << rhs.filterSize << std::endl <<
         "Viterbi filter size: " << rhs.viterbiFilterSize << std::endl <<
         "Viterbi batch size: " << rhs.batchSize << std::endl <<
-        "Read chunking size (0 for original length): " << rhs.chunkSize << std::endl;
+        "Read chunking size (0 for original length): " << rhs.chunkSize;
         
         return out;
     }
