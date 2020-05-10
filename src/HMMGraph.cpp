@@ -81,9 +81,12 @@ void HMMGraph::buildGraph(){
 
     //pre calculated initial transition values for any state in hmm
     preCalculatedTransitionProbs = new prob_prec[numOfTransitionsPerState];
-    for(size_t curTr = 0; curTr < numOfTransitionsPerState; ++curTr)
+    preCalculatedLogTransitionProbs = new prob_prec[numOfTransitionsPerState];
+    for(size_t curTr = 0; curTr < numOfTransitionsPerState; ++curTr){
         preCalculatedTransitionProbs[curTr]=seqGraph[0].transitionProbFromThisNode(stateTransitions[curTr].toState,
                                                                                    params);
+        preCalculatedLogTransitionProbs[curTr] = log10(preCalculatedTransitionProbs[curTr]);
+    }
     
     //array of transitionProbs[from state][to state]
     transitionProbs = new prob_prec*[numberOfStates];
@@ -115,6 +118,7 @@ void HMMGraph::freeGraph(){
     
     delete[] seqGraph;
     delete[] preCalculatedTransitionProbs;
+    delete[] preCalculatedLogTransitionProbs;
     delete[] transitionProbs;
     delete[] emissionProbs;
     delete[] stateProcessedCount;

@@ -31,6 +31,7 @@ public:
     ind_prec contigLength;
     ind_prec numOfTransitionsPerState;
     prob_prec* preCalculatedTransitionProbs;
+    prob_prec* preCalculatedLogTransitionProbs;
     prob_prec** transitionProbs;
     prob_prec** emissionProbs;
     cnt_prec* stateProcessedCount;

@@ -73,9 +73,9 @@ void HMMDecoder::viterbiThreadPool(ind_prec seqLength, ind_prec& seqIndex,seqan:
             ind_prec next = curStateTransitions.begin()->toState;
             ind_prec transitionIndex = (next - startState)/(graph->params.maxInsertion+1); //0:ins., 1: match, 2..:dels
 
-            if(next <= endState && graph->transitionProbs[startState][transitionIndex] > 0.0001){
-                (*prevViterbi)[next] = log10(graph->transitionProbs[startState][transitionIndex]) +
-                log10(graph->maxEmissionProbs[next].first);
+            if(next <= endState){
+                (*prevViterbi)[next] = graph->transitionProbs[startState][transitionIndex] +
+                graph->maxEmissionProbs[next].first;
 
                 curTrSet->insert(next);
                 allowedParentStates[next-startState] = true;
@@ -111,10 +111,10 @@ void HMMDecoder::viterbiThreadPool(ind_prec seqLength, ind_prec& seqIndex,seqan:
                         //0->insertion, 1-> match, 2,3...->deletions
                         ind_prec transitionIndex = (toState - matchoff)/(graph->params.maxInsertion+1);
 
-                        if(toState <= endState && graph->transitionProbs[fromState][transitionIndex] > 0.001){
+                        if(toState <= endState){
 
                             prob_prec newViterbi = (*prevViterbi)[fromState] +
-                            log10(graph->transitionProbs[fromState][transitionIndex]) + log10(graph->maxEmissionProbs[toState].first);
+                            graph->transitionProbs[fromState][transitionIndex] + graph->maxEmissionProbs[toState].first;
 
                             itVit = curViterbi->find(toState);
                             if(itVit == curViterbi->end() || (*curViterbi)[toState] < newViterbi){

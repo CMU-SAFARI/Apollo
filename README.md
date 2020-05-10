@@ -112,3 +112,11 @@ apollo -a assembly.fasta -r pacbio.fasta -m alignment.bam -o polished.fasta -c 1
 * Apollo currently does not support paired-end reads. Those paired-end reads can be provided as multiple input read sets to the Apollo where they also should have multiple read-to-assembly alignment files. Another option is to merge the paired-end Illumina reads into one FASTA file but one should make sure that the read ids per sequence are unique.
 
 * Apollo requires `samtools` to be preinstalled in order to generate the index files and sort the alignment file.
+
+### Publication and citing Apollo
+
+If you would like to cite Apollo, please cite the following publication:
+
+> Can Firtina, Jeremie S. Kim, Mohammed Alser, Damla Senol Cali, A. Ercument Cicek, Can Alkan, and Onur Mutlu,
+> "Apollo: A Sequencing-Technology-Independent, Scalable, and Accurate Assembly Polishing Algorithm"
+> *Bioinformatics*, **btaa179**, 2020. [doi:10.1093/bioinformatics/btaa179][doi]

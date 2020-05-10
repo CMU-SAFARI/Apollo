@@ -9,7 +9,7 @@
 * @bug No known bug
 */
 #include "HMMTrainer.h"
-//#include <limits>
+#include <limits>
 
 HMMTrainer::HMMTrainer(){graph = NULL;}
 HMMTrainer::HMMTrainer(HMMGraph* graph):graph(graph){}
@@ -43,61 +43,67 @@ void HMMTrainer::calculateFB(std::vector<seqan::BamFileIn>& alignmentSetsIn,
     }//F/B calculation is now done
 }
 
+//@IMPORTANT: log calculations are done here, instead of in the viterbi calculations
 void HMMTrainer::maximizeEM(){
     if(graph == NULL) return;
     
+    graph->maxEmissionProbs = new std::pair<prob_prec, char>[graph->numberOfStates];
+    prob_prec lastInsertionTransitionResetProb = graph->preCalculatedLogTransitionProbs[1];
+    prob_prec lastInsertionTransitionProb = log10(graph->params.matchTransition + graph->params.insertionTransition);
+    
     for(ind_prec curState = 0; curState < graph->numberOfStates; ++curState){
-        if(graph->seqGraph[curState].isLastInsertionState())
+        if(graph->seqGraph[curState].isLastInsertionState()){
             //for the last insertion state, the insertion probs change so that it wont have insertion transition
-            graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition + graph->params.insertionTransition;
+            graph->preCalculatedLogTransitionProbs[1] = lastInsertionTransitionProb;
+            graph->transitionProbs[curState][0] = std::numeric_limits<int>::min()/100;
+        }
         
+        ind_prec curTransition = (graph->seqGraph[curState].isLastInsertionState())?1:0;
+        prob_prec maxEmissionProb;
+        char maxEmissionChar;
         //if this state ever processed then its probs may need to be updated
         if(graph->stateProcessedCount[curState] > 0){
-            for(ind_prec curTransition = (graph->seqGraph[curState].isLastInsertionState())?1:0;
-                curTransition < graph->numOfTransitionsPerState; ++curTransition){
-
-                graph->transitionProbs[curState][curTransition] = (graph->transitionProcessedCount[curState][curTransition] > 0)?
-                graph->transitionProbs[curState][curTransition]/graph->transitionProcessedCount[curState][curTransition]:
-                graph->preCalculatedTransitionProbs[curTransition];
+            while(curTransition < graph->numOfTransitionsPerState){
+                graph->transitionProbs[curState][curTransition] =
+                (graph->transitionProcessedCount[curState][curTransition] > 0)?
+                log10(graph->transitionProbs[curState][curTransition]/
+                      graph->transitionProcessedCount[curState][curTransition]):
+                graph->preCalculatedLogTransitionProbs[curTransition];
+                curTransition++;
             }
-
+            
             graph->emissionProbs[curState][A] /= graph->stateProcessedCount[curState];
             graph->emissionProbs[curState][T] /= graph->stateProcessedCount[curState];
             graph->emissionProbs[curState][G] /= graph->stateProcessedCount[curState];
             graph->emissionProbs[curState][C] /= graph->stateProcessedCount[curState];
         }else{ //initial probs to be set unless this state has been processed
-            for(ind_prec curTr = (graph->seqGraph[curState].isLastInsertionState())?1:0;
-                curTr < graph->numOfTransitionsPerState; ++curTr)
-                graph->transitionProbs[curState][curTr] = graph->preCalculatedTransitionProbs[curTr];
+            while(curTransition < graph->numOfTransitionsPerState){
+                graph->transitionProbs[curState][curTransition] = graph->preCalculatedLogTransitionProbs[curTransition];
+                curTransition++;
+            }
 
             graph->emissionProbs[curState][A] = graph->seqGraph[curState].getEmissionProb('A', graph->params);
+            maxEmissionProb = graph->emissionProbs[curState][A]; maxEmissionChar = 'A';
             graph->emissionProbs[curState][T] = graph->seqGraph[curState].getEmissionProb('T', graph->params);
             graph->emissionProbs[curState][G] = graph->seqGraph[curState].getEmissionProb('G', graph->params);
             graph->emissionProbs[curState][C] = graph->seqGraph[curState].getEmissionProb('C', graph->params);
         }
-
-        if(graph->seqGraph[curState].isLastInsertionState())
-            graph->preCalculatedTransitionProbs[1] = graph->params.matchTransition;
-    }
-
-    //@dynamic init
-    graph->maxEmissionProbs = new std::pair<prob_prec, char>[graph->numberOfStates];
-    for(unsigned curState = 0; curState < graph->numberOfStates; ++curState){
-        if(graph->emissionProbs[curState][A] >= std::max(graph->emissionProbs[curState][T],
-                                                         std::max(graph->emissionProbs[curState][G],
-                                                                  graph->emissionProbs[curState][C]))){
-            graph->maxEmissionProbs[curState] = std::make_pair(graph->emissionProbs[curState][A], 'A');
-        }else if(graph->emissionProbs[curState][T] >= std::max(graph->emissionProbs[curState][A],
-                                                        std::max(graph->emissionProbs[curState][G],
-                                                                 graph->emissionProbs[curState][C]))){
-            graph->maxEmissionProbs[curState] = std::make_pair(graph->emissionProbs[curState][T], 'T');
-        }else if(graph->emissionProbs[curState][G] >= std::max(graph->emissionProbs[curState][A],
-                                                        std::max(graph->emissionProbs[curState][T],
-                                                                 graph->emissionProbs[curState][C]))){
-            graph->maxEmissionProbs[curState] = std::make_pair(graph->emissionProbs[curState][G], 'G');
-        }else{
-            graph->maxEmissionProbs[curState] = std::make_pair(graph->emissionProbs[curState][C], 'C');
+        
+        maxEmissionProb = graph->emissionProbs[curState][A]; maxEmissionChar = 'A';
+        if(graph->emissionProbs[curState][T] > maxEmissionProb){
+            maxEmissionProb = graph->emissionProbs[curState][T]; maxEmissionChar = 'T';
         }
+        if(graph->emissionProbs[curState][G] > maxEmissionProb){
+            maxEmissionProb = graph->emissionProbs[curState][G]; maxEmissionChar = 'G';
+        }
+        if(graph->emissionProbs[curState][C] > maxEmissionProb){
+            maxEmissionProb = graph->emissionProbs[curState][C]; maxEmissionChar = 'C';
+        }
+        
+        graph->maxEmissionProbs[curState] = std::make_pair(log10(maxEmissionProb), maxEmissionChar);
+        
+        if(graph->seqGraph[curState].isLastInsertionState())
+            graph->preCalculatedLogTransitionProbs[1] = lastInsertionTransitionResetProb;
     }
 }
 
@@ -118,12 +124,7 @@ void HMMTrainer::fbThreadPool(const std::vector<Read>& reads, ind_prec& readInde
     
     while(curRead < (ind_prec)reads.size()){
         
-        //to which character should correction extend at maximum
-        //decide whether this is a short read (fragment) or long
         ind_prec readLength = (ind_prec)seqan::length(reads[curRead].read);
-//        ind_prec maxTransition = readLength + readLength/20 + 1;
-//        if(readLength < 500) maxTransition = readLength + readLength/3 + 1;
-
         ind_prec maxDistanceOnAssembly = std::min(reads[curRead].endPos, graph->contigLength); //end pos exclusive
         //states prior to this wont be processed. offset value is to ignore these states
         ind_prec offset = MATCH_DOFFSET(reads[curRead].pos, 1, graph->params.maxInsertion);
